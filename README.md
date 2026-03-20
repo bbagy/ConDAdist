@@ -1,6 +1,8 @@
 # ConDA-dist
 
-`ConDA-dist` is a microbiome differential abundance framework that supports both:
+`ConDA-dist` is a microbiome differential abundance framework for single-method
+analysis and multi-method consensus scoring, with optional distance-guided
+evidence integration.
 
 - single-method DA runs with standardized outputs
 - multi-method consensus scoring with beta-diversity-guided evidence integration
