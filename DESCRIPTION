@@ -1,0 +1,38 @@
+Package: ConDAdist
+Title: Consensus Differential Abundance With Distance-Guided Scoring
+Version: 0.0.0.9000
+Authors@R:
+    person("Heekuk", "Park", email = "heekukpark@example.com", role = c("aut", "cre"))
+Description: Provides a distance-guided consensus framework for microbiome
+    differential abundance analysis. The package centers on the
+    orchestrator Go_ConDaDist(), which supports both single-method
+    differential abundance runs and multi-method consensus runs.
+    ConDAdist standardizes outputs across supported DA methods,
+    optionally integrates beta-diversity contribution evidence, exports
+    directory-first CSV results, and creates bridge files for
+    downstream volcano plotting with the existing Go tool family.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    methods,
+    stats,
+    utils
+Suggests:
+    ggrepel,
+    ggplot2,
+    ALDEx2,
+    ANCOMBC,
+    DESeq2,
+    Maaslin2,
+    S4Vectors,
+    corncob,
+    htmltools,
+    htmlwidgets,
+    phyloseq,
+    plotly,
+    rmarkdown,
+    testthat,
+    vegan

@@ -1,0 +1,6 @@
+^.*\.Rproj$
+^\.DS_Store$
+^\.gitignore$
+^\.Rhistory$
+^\.RData$
+^\.Ruserdata$
