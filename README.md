@@ -30,6 +30,13 @@ Supported distance metrics:
 - `jaccard`
 - `aitchison`
 
+Why distances matter:
+
+- DA methods detect feature-level abundance shifts
+- distance-based beta evidence asks whether a feature also contributes to
+  between-group community separation
+- this gives `ConDA-dist` a second axis of evidence beyond DA p-values alone
+
 `distances = NULL` turns off beta-diversity and runs DA-only mode.
 
 ## Design Principles
@@ -307,6 +314,9 @@ Current QC outputs include:
 
 ## Distance Guidance
 
+Use distances when you want consensus ranking to reflect not only differential
+abundance, but also contribution to overall community structure differences.
+
 At most 3 distances are allowed per run.
 
 Recommended combinations:
@@ -320,6 +330,12 @@ Why the limit exists:
 
 - beta contribution is the most computationally expensive step
 - feature-level leave-one-feature-out scoring scales quickly with both feature count and number of distances
+
+When to set `distances = NULL`:
+
+- when you only want a single-method DA result
+- when you want a fast DA-only consensus run
+- when beta-diversity contribution is not part of the current question
 
 ## Return Value
 
