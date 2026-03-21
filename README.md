@@ -93,6 +93,25 @@ Key arguments:
 - `methods`: DA methods to run
 - `distances`: up to 3 distance metrics per run
 
+## Mode Summary
+
+`ConDA-dist` behaves differently depending on the combination of `methods` and
+`distances`.
+
+- `single + NULL`
+  pure single-method mode
+- `single + dist`
+  one-method DA result plus beta-diversity evidence
+- `multi + NULL`
+  DA-only multi-method consensus
+- `multi + dist`
+  full ConDA mode
+
+The `single + dist` case is especially useful when a user strongly prefers one
+DA method but still wants to reinterpret that result with an additional
+community-structure axis. In that setting, the preferred DA tool is kept, while
+beta-diversity contribution is added as complementary evidence.
+
 ## Single-Method Mode
 
 Single mode is triggered when:
@@ -135,6 +154,8 @@ Notes:
 - `maaslin2` single mode uses the native `MaAsLin2` workflow
 - `ancombc2` supports mixed-effects through `random_effects`
 - single mode returns the output directory path invisibly
+- if one DA method is supplied together with `distances`, the run becomes a
+  one-method-plus-beta mode rather than pure single mode
 
 ## Consensus Mode
 
@@ -193,7 +214,7 @@ project_YYMMDD/
 │   ├── ConDaDist/
 │   │   └── <signature>/
 │   │       └── <group1.vs.group2>/
-│   └── ConDaDist_volcano/
+│   └── ConDaDist_plot_Tab/
 └── pdf/
     ├── DA_plot/
     └── ConDa_plot/
@@ -203,7 +224,7 @@ In practice, the two most important directories are:
 
 - `table/ConDaDist/`
   main analysis tables
-- `table/ConDaDist_volcano/`
+- `table/ConDaDist_plot_Tab/`
   bridge CSV files for `Go_volcanoPlot`
 
 For a typical consensus comparison:
@@ -220,7 +241,7 @@ DemoProj_260319/
 │   │           ├── DemoProj.beta_summary.csv
 │   │           ├── DemoProj.beta_feature_contribution.csv
 │   │           └── DemoProj.final_consensus_scores.csv
-│   └── ConDaDist_volcano/
+│   └── ConDaDist_plot_Tab/
 │       ├── condadist.DANMC.(Control.vs.GLP-2.DemoProj).volcano_bridge.csv
 │       └── deseq2.(Control.vs.GLP-2.DemoProj).volcano_bridge.csv
 └── pdf/
@@ -249,26 +270,24 @@ res_dir <- Go_ConDaDist(
   group_2 = "GLP-2",
   project = "DemoProj",
   methods = c("deseq2", "aldex2", "ancombc2"),
-  distances = c("bray", "jaccard", "aitchison"),
-  volcano_plot = TRUE
+  distances = c("bray", "jaccard", "aitchison")
 )
 
-# 2. Inspect exported tables
+# 2. Inspect project outputs
 list.files(res_dir)
 
 # 3. Review volcano output
-project_dir <- normalizePath(file.path(res_dir, "..", "..", "..", ".."))
-list.files(file.path(project_dir, "pdf", "ConDa_plot"))
+list.files(file.path(res_dir, "pdf", "ConDa_plot"))
 ```
 
-This directory-first workflow is intentional: `ConDA-dist` writes its main
-results to CSV files and returns the output path invisibly.
+This directory-first workflow is intentional: `ConDA-dist` writes its results
+to CSV/PDF/HTML files beneath a dated project directory and returns that root
+path invisibly.
 
 ## Volcano Plot Integration
 
-`ConDA-dist` exports bridge CSV files that can be read by the older Gotools `Go_volcanoPlot`.
-
-Enable this during a run:
+`ConDA-dist` exports bridge CSV files automatically so they can be read by the
+older Gotools `Go_volcanoPlot`.
 
 ```r
 res_dir <- Go_ConDaDist(
@@ -278,8 +297,7 @@ res_dir <- Go_ConDaDist(
   group_2 = "GLP-2",
   project = "DemoProj",
   methods = c("deseq2", "aldex2"),
-  distances = NULL,
-  volcano_plot = TRUE
+  distances = NULL
 )
 ```
 

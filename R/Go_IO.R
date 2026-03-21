@@ -31,10 +31,18 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
                                    filtered_metadata, group_var, group_1, group_2,
                                    analysis_mode = NA_character_,
                                    methods,
+                                   distances = NULL,
+                                   single_output_dir = NULL,
+                                   write_consensus = TRUE,
                                    file_prefix = NULL,
                                    name = NULL) {
   bridge_dir <- output_dir
-  dir.create(bridge_dir, recursive = TRUE, showWarnings = FALSE)
+  single_bridge_dir <- if (!is.null(single_output_dir)) single_output_dir else output_dir
+  if (isTRUE(write_consensus)) {
+    dir.create(bridge_dir, recursive = TRUE, showWarnings = FALSE)
+  } else {
+    dir.create(single_bridge_dir, recursive = TRUE, showWarnings = FALSE)
+  }
 
   method_signature <- Go_MethodSignature(methods)
   bas.count <- sum(filtered_metadata[[group_var]] == group_1, na.rm = TRUE)
@@ -45,7 +53,7 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
   files <- list()
 
   unique_methods <- unique(da_table$method[!is.na(da_table$method)])
-  if (length(unique_methods) == 1) {
+  if (!isTRUE(write_consensus) && length(unique_methods) == 1) {
     method <- unique_methods[1]
     x <- da_table[da_table$method == method, , drop = FALSE]
     if (!"ASV" %in% colnames(x) || all(is.na(x$ASV) | !nzchar(x$ASV))) {
@@ -105,35 +113,40 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     )
 
     tool_stub <- if (method == "ancombc2") "ancom2" else method
-    file <- file.path(bridge_dir, paste0(tool_stub, ".", comparison_stub, ".volcano_bridge.csv"))
+    file <- file.path(single_bridge_dir, paste0(tool_stub, ".", comparison_stub, ".csv"))
     utils::write.csv(bridge, file, row.names = FALSE)
     files[[tool_stub]] <- file
   }
 
-  consensus <- final_scores
-  if (!"ASV" %in% colnames(consensus) || all(is.na(consensus$ASV) | !nzchar(consensus$ASV))) {
-    consensus$ASV <- consensus$feature_id
+  if (isTRUE(write_consensus)) {
+    consensus <- final_scores
+    if (!"ASV" %in% colnames(consensus) || all(is.na(consensus$ASV) | !nzchar(consensus$ASV))) {
+      consensus$ASV <- consensus$feature_id
+    }
+    consensus$baseline <- group_1
+    consensus$smvar <- group_2
+    consensus$bas.count <- bas.count
+    consensus$smvar.count <- smvar.count
+    consensus$mvar <- group_var
+    consensus$name_token <- if (is.null(name)) NA_character_ else as.character(name)
+    consensus$comparison_token <- comparison_token
+    consensus$condadist.P <- ifelse(
+      consensus$fisher_combined_p < 0.05,
+      ifelse(consensus$median_effect_size >= 0, "up", "down"),
+      "NS"
+    )
+    consensus$condadist.FDR <- ifelse(
+      consensus$fisher_combined_q < 0.05,
+      ifelse(consensus$median_effect_size >= 0, "up", "down"),
+      "NS"
+    )
+    dist_signature <- if (!is.null(distances) && length(distances) > 0)
+      paste0(".", paste(distances, collapse = ".")) else ""
+    consensus_file <- file.path(bridge_dir, paste0("condadist.", method_signature, dist_signature, ".", comparison_stub, ".csv"))
+    utils::write.csv(consensus, consensus_file, row.names = FALSE)
+    files$condadist <- consensus_file
   }
-  consensus$baseline <- group_1
-  consensus$smvar <- group_2
-  consensus$bas.count <- bas.count
-  consensus$smvar.count <- smvar.count
-  consensus$mvar <- group_var
-  consensus$name_token <- if (is.null(name)) NA_character_ else as.character(name)
-  consensus$comparison_token <- comparison_token
-  consensus$condadist.P <- ifelse(
-    consensus$fisher_combined_p < 0.05,
-    ifelse(consensus$median_effect_size >= 0, "up", "down"),
-    "NS"
-  )
-  consensus$condadist.FDR <- ifelse(
-    consensus$fisher_combined_q < 0.05,
-    ifelse(consensus$median_effect_size >= 0, "up", "down"),
-    "NS"
-  )
-  consensus_file <- file.path(bridge_dir, paste0("condadist.", method_signature, ".", comparison_stub, ".volcano_bridge.csv"))
-  utils::write.csv(consensus, consensus_file, row.names = FALSE)
-  files$condadist <- consensus_file
 
-  list(dir = bridge_dir, files = files, analysis_mode = analysis_mode)
+  list(dir = if (isTRUE(write_consensus)) bridge_dir else single_bridge_dir,
+       files = files, analysis_mode = analysis_mode)
 }

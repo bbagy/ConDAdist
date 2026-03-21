@@ -194,7 +194,7 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
         base_result = out,
         feature_ids = res$taxon,
         coef = res[[coef_col]],
-        effect_size = -res[[coef_col]],
+        effect_size = res[[coef_col]],
         p_value = res[[p_col]],
         q_value = res[[q_col]]
       )
@@ -267,9 +267,15 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
           asv_matrix <- as.matrix(asv_matrix)
         }
 
-        fit_try <- try(ALDEx2::aldex(asv_matrix, conds, test = "t"), silent = TRUE)
+        set.seed(control$seed %||% 1L)
+        fit_try <- try(ALDEx2::aldex(asv_matrix, conds, test = "t",
+                                     mc.samples = control$mc_samples,
+                                     denom = control$denom), silent = TRUE)
         if (inherits(fit_try, "try-error")) {
-          fit <- ALDEx2::aldex(t(asv_matrix), conds, test = "t")
+          set.seed(control$seed %||% 1L)
+          fit <- ALDEx2::aldex(t(asv_matrix), conds, test = "t",
+                               mc.samples = control$mc_samples,
+                               denom = control$denom)
         } else {
           fit <- fit_try
         }
@@ -287,37 +293,50 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
           coef = fit_df$diff.btw,
           effect_size = fit_df$effect,
           p_value = fit_df$wi.ep,
-          q_value = fit_df$we.eBH
+          q_value = fit_df$wi.eBH
         )
       } else {
+        # GLM mode with covariates: model matrix approach
         native_counts <- Go_PrepareCountMatrix(
           prepared$feature_table,
           min_count = 0,
-          zero_replace = FALSE,
-          zero_replace_value = 1
+          zero_replace = control$zero_replace %||% FALSE,
+          zero_replace_value = control$zero_replace_value %||% 0.5
         )
-        clr <- ALDEx2::aldex.clr(
-          reads = native_counts,
-          conds = method_input$condition_vector,
-          mc.samples = control$mc_samples,
-          denom = control$denom,
-          verbose = FALSE,
-          useMC = control$use_mc
+        design_terms <- c(prepared$covariates, prepared$temp_group_var)
+        design_formula <- stats::as.formula(
+          paste("~", paste(vapply(design_terms, Go_BacktickName, character(1)), collapse = " + "))
         )
-        tt <- ALDEx2::aldex.ttest(clr, paired.test = control$paired_test, verbose = FALSE)
-        eff <- ALDEx2::aldex.effect(clr, verbose = FALSE, paired.test = control$paired_test)
+        mod_matrix <- stats::model.matrix(design_formula, data = prepared$metadata)
+
+        set.seed(control$seed %||% 1L)
+        glm_fit <- ALDEx2::aldex(native_counts, mod_matrix, test = "glm",
+                                 mc.samples = control$mc_samples,
+                                 denom = control$denom,
+                                 verbose = FALSE,
+                                 useMC = control$use_mc)
+        glm_df <- as.data.frame(glm_fit)
+
+        # Extract columns for the group effect (.conda_groupcmp)
+        group_col <- paste0(prepared$temp_group_var, "cmp")
+        est_col  <- paste0(group_col, "Est")
+        pval_col <- paste0(group_col, "pval")
+        padj_col <- paste0(group_col, "pval.padj")
+        if (!padj_col %in% colnames(glm_df)) {
+          padj_col <- paste0(group_col, "pval.holm")
+        }
 
         out <- Go_CreateBaseDAResult(
           prepared, "aldex2", "aldex_effect",
-          Go_CombineNotes("Native ALDEx2 adapter", Go_ControlNote(control))
+          Go_CombineNotes("Native ALDEx2 adapter (GLM)", Go_ControlNote(control))
         )
         out <- Go_FillDAResult(
           base_result = out,
-          feature_ids = rownames(eff),
-          coef = eff$diff.btw,
-          effect_size = eff$effect,
-          p_value = tt$wi.ep,
-          q_value = tt$we.eBH
+          feature_ids = rownames(glm_df),
+          coef = glm_df[[est_col]],
+          effect_size = glm_df[[est_col]],
+          p_value = glm_df[[pval_col]],
+          q_value = glm_df[[padj_col]]
         )
       }
       out$is_significant <- out$q_value < alpha

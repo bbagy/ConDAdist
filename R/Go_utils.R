@@ -181,11 +181,12 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
     ),
     aldex2 = list(
       mc_samples = 128L,
-      denom = "all",
+      denom = "iqlr",
       use_mc = FALSE,
       paired_test = FALSE,
-      zero_replace = TRUE,
-      zero_replace_value = 0.5
+      zero_replace = FALSE,
+      zero_replace_value = 0.5,
+      seed = 1L
     ),
     maaslin2 = list(
       min_abundance = 0,
@@ -215,7 +216,7 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
       min_count = 0,
       zero_replace = FALSE,
       zero_replace_value = 1,
-      size_factors_type = "ratio"
+      size_factors_type = "poscounts"
     ),
     list()
   )
@@ -861,9 +862,9 @@ Go_path <- function(project, pdf = "yes", table = "yes", path = NULL) {
     createDir(conda_dist_dir, "ConDaDist")
     dirs$conda_dist <- conda_dist_dir
 
-    conda_dist_volcano_dir <- file.path(table_dir, "ConDaDist_volcano")
-    createDir(conda_dist_volcano_dir, "ConDaDist_volcano")
-    dirs$conda_dist_volcano <- conda_dist_volcano_dir
+    # These directories are created on demand by Go_ExportVolcanoBridge
+    dirs$conda_dist_volcano <- file.path(table_dir, "ConDaDist_plot_Tab")
+    dirs$conda_dist_single_volcano <- file.path(table_dir, "ConDaDist_plot_single_Tab")
   }
 
   if (!is.null(pdf) && tolower(pdf) == "yes") {

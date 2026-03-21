@@ -21,12 +21,26 @@
 #' @param random_effects Optional random-effect metadata variables used for
 #'   native `MaAsLin2` single-mode runs and `ANCOMBC2` mixed-effects models.
 #' @param methods Differential abundance methods to run. Defaults to all
-#'   supported methods: `ancombc2`, `aldex2`, `maaslin2`, `corncob`, and
-#'   `deseq2`.
-#' @param distances Beta-diversity distances to compute. Defaults to the
-#'   representative set `bray`, `jaccard`, and `aitchison`. At most 3 distances
-#'   are allowed per run. Set to `NULL` to disable beta-diversity and run
-#'   DA-only mode.
+#'   supported methods. Available options:
+#'   \itemize{
+#'     \item \code{"ancombc2"} — ANCOM-BC2 (log-linear, bias-corrected)
+#'     \item \code{"aldex2"}   — ALDEx2 (t-test without covariates; GLM with covariates)
+#'     \item \code{"maaslin2"} — MaAsLin2 (linear mixed model, TSS+LOG)
+#'     \item \code{"corncob"}  — corncob (beta-binomial, handles overdispersion)
+#'     \item \code{"deseq2"}   — DESeq2 (negative binomial, poscounts normalization)
+#'   }
+#' @param distances Beta-diversity distances to compute. At most 3 distances
+#'   are allowed per run. Set to \code{NULL} to disable beta-diversity and run
+#'   DA-only mode. Available options:
+#'   \itemize{
+#'     \item \code{"bray"}             — Bray-Curtis dissimilarity (recommended default)
+#'     \item \code{"jaccard"}          — Jaccard distance (presence/absence)
+#'     \item \code{"aitchison"}        — Aitchison distance (CLR-transformed Euclidean)
+#'     \item \code{"unifrac"}          — Unweighted UniFrac (requires phylogenetic tree)
+#'     \item \code{"weighted_unifrac"} — Weighted UniFrac (requires phylogenetic tree)
+#'   }
+#'   Recommended without tree: \code{c("bray", "jaccard", "aitchison")}.
+#'   Recommended with tree: \code{c("bray", "aitchison", "unifrac")}.
 #' @param method_controls Optional named list of per-method control lists.
 #' @param prevalence Minimum fraction of samples with non-zero abundance used in
 #'   feature filtering.
@@ -37,14 +51,13 @@
 #' @param n_beta_permutations Number of feature-level beta permutations.
 #' @param weights Named numeric vector controlling final score weights.
 #' @param qc_plot Generate QC plots automatically after analysis.
-#' @param volcano_plot Generate volcano plots through Gotools
-#'   `Go_volcanoPlot()` using bridge CSV files exported from `ConDA-dist`.
+#' Volcano bridge tables and Gotools volcano plots are generated automatically.
 #' @param continue_on_error Keep running remaining pairwise comparisons even if
 #'   one comparison fails.
 #'
-#' @return Output directory path. For a single comparison this is the
-#'   comparison directory. For multiple comparisons this is the method-signature
-#'   directory containing all comparison subdirectories.
+#' @return Project output root directory path (for example
+#'   `DemoProj_YYMMDD`). All tables, bridge CSV files, QC plots, and volcano
+#'   outputs are written beneath this directory.
 #'
 #' @examples
 #' \dontrun{
@@ -66,7 +79,7 @@
 #'   group_1 = "Control",
 #'   group_2 = "GLP-2",
 #'   project = "DemoProj",
-#'   methods = c("deseq2", "aldex2", "ancombc2"),
+#'   methods = c("ancombc2", "aldex2", "deseq2"),
 #'   distances = c("bray", "jaccard", "aitchison")
 #' )
 #'
@@ -91,8 +104,12 @@ Go_ConDaDist <- function(
   covariates = NULL,
   name = NULL,
   random_effects = NULL,
-  methods = Go_AllDAMethods(),
-  distances = Go_AllDistanceMetrics(),
+  # DA methods: "ancombc2", "aldex2", "maaslin2", "corncob", "deseq2"
+  methods = c("ancombc2", "aldex2", "maaslin2", "corncob", "deseq2"),
+  # distances: "bray", "jaccard", "aitchison", "unifrac", "weighted_unifrac"
+  # unifrac / weighted_unifrac require a phylogenetic tree in psIN
+  # set NULL to run DA-only (no beta-diversity)
+  distances = c("bray", "jaccard", "aitchison"),
   method_controls = NULL,
   prevalence = 0.1,
   abundance = 1e-4,
@@ -101,7 +118,6 @@ Go_ConDaDist <- function(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
-  volcano_plot = FALSE,
   continue_on_error = TRUE
 ) {
   result <- Go_RunConDaDistMain(
@@ -124,10 +140,13 @@ Go_ConDaDist <- function(
     n_beta_permutations = n_beta_permutations,
     weights = weights,
     qc_plot = qc_plot,
-    volcano_plot = volcano_plot,
     continue_on_error = continue_on_error
   )
-  invisible(if (is.list(result) && !is.null(result$return_dir)) result$return_dir else result)
+  root_dir <- if (is.list(result) && !is.null(result$return_dir)) result$return_dir else result
+  resolved_methods <- Go_ResolveMethods(methods)
+  is_single <- length(resolved_methods) == 1 && (is.null(distances) || length(distances) == 0)
+  subdir <- if (is_single) "ConDaDist_plot_single_Tab" else "ConDaDist_plot_Tab"
+  invisible(file.path(root_dir, "table", subdir))
 }
 
 Go_RunConDaDistMain <- function(
@@ -150,7 +169,6 @@ Go_RunConDaDistMain <- function(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
-  volcano_plot = FALSE,
   continue_on_error = TRUE
 ) {
   if (is.null(project) || !nzchar(project)) {
@@ -175,26 +193,17 @@ Go_RunConDaDistMain <- function(
       random_effects = random_effects,
       name = name
     )
-    if (isTRUE(volcano_plot)) {
-      output_layout <- Go_path(project = project, pdf = "no", table = "yes")
-      bridge_out <- Go_ExportNativeMaaslin2VolcanoBridge(
-        native_dir = native_dir,
-        bridge_dir = output_layout$conda_dist_volcano,
-        psIN = feature_table,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        name = name
-      )
-      message("[ConDA] Rendering volcano plots from native MaAsLin2 bridge.")
-      Go_RunVolcanoPlotBridge(
-        project = project,
-        bridge_dir = bridge_out$dir,
-        comparison_name = if (length(group_2) == 1) paste0(group_1, ".vs.", group_2) else name,
-        name = name
-      )
-    }
-    return(invisible(native_dir))
+    output_layout <- Go_path(project = project, pdf = "no", table = "yes")
+    bridge_out <- Go_ExportNativeMaaslin2VolcanoBridge(
+      native_dir = native_dir,
+      bridge_dir = output_layout$conda_dist_single_volcano,
+      psIN = feature_table,
+      group_var = group_var,
+      group_1 = group_1,
+      group_2 = group_2,
+      name = name
+    )
+    return(invisible(normalizePath(output_layout$main, winslash = "/", mustWork = FALSE)))
   }
 
   output_layout <- Go_path(project = project, pdf = "no", table = "yes")
@@ -227,8 +236,8 @@ Go_RunConDaDistMain <- function(
         n_beta_permutations = n_beta_permutations,
         weights = weights,
         qc_plot = qc_plot,
-        volcano_plot = volcano_plot,
         volcano_bridge_root_dir = output_layout$conda_dist_volcano,
+        single_volcano_bridge_root_dir = output_layout$conda_dist_single_volcano,
         output_dir = comparison_dir,
         file_prefix = file_prefix
       )
@@ -260,7 +269,7 @@ Go_RunConDaDistMain <- function(
     single$project <- project
     single$output_root_dir <- root_output_dir
     single$output_table_dir <- output_layout$table
-    single$return_dir <- single$comparison_dir
+    single$return_dir <- normalizePath(root_output_dir, winslash = "/", mustWork = FALSE)
     return(invisible(single))
   }
 
@@ -269,7 +278,7 @@ Go_RunConDaDistMain <- function(
     output_root_dir = root_output_dir,
     output_table_dir = output_layout$table,
     comparisons = comparison_results,
-    return_dir = method_dir
+    return_dir = normalizePath(root_output_dir, winslash = "/", mustWork = FALSE)
   ))
 }
 
@@ -328,8 +337,8 @@ Go_RunSingleDAensemble <- function(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
-  volcano_plot = FALSE,
   volcano_bridge_root_dir = NULL,
+  single_volcano_bridge_root_dir = NULL,
   output_dir,
   file_prefix = NULL
 ) {
@@ -340,6 +349,7 @@ Go_RunSingleDAensemble <- function(
 
   methods <- Go_ResolveMethods(methods)
   distances <- Go_ResolveDistances(distances, phy_tree = input_bundle$phy_tree)
+  single_method_mode <- length(methods) == 1 && (is.null(distances) || length(distances) == 0)
 
   Go_AssertInputs(
     feature_table = input_bundle$feature_table,
@@ -473,49 +483,33 @@ Go_RunSingleDAensemble <- function(
     }
   }
 
-  if (isTRUE(volcano_plot)) {
-    message("[ConDA] Exporting volcano bridge tables.")
-    bridge_out <- tryCatch(
-      Go_ExportVolcanoBridge(
-        output_dir = volcano_bridge_root_dir %||% file.path(output_dir, "volcano_bridge"),
-        da_table = result$da_standardized$all_methods_standardized,
-        final_scores = result$final_scores,
-        filtered_metadata = result$filtered$metadata,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        analysis_mode = unique(result$final_scores$analysis_mode %||% NA_character_),
-        methods = methods,
-        file_prefix = file_prefix,
-        name = name
-      ),
-      error = function(e) {
-        message("[ConDA] Volcano bridge export failed: ", conditionMessage(e))
-        NULL
-      }
-    )
-    result$volcano_bridge <- bridge_out
-    if (!is.null(bridge_out)) {
-      result$exported$volcano_bridge <- bridge_out$files
-      result$exported$volcano_bridge_dir <- bridge_out$dir
-      message("[ConDA] Generating volcano plots through Gotools.")
-      volcano_out <- tryCatch(
-        Go_RunVolcanoPlotBridge(
-          project = project,
-          bridge_dir = bridge_out$dir,
-          comparison_name = paste0(group_1, ".vs.", group_2),
-          name = name
-        ),
-        error = function(e) {
-          message("[ConDA] Volcano plot generation failed: ", conditionMessage(e))
-          NULL
-        }
-      )
-      result$volcano_plot <- volcano_out
-      if (!is.null(volcano_out)) {
-        result$exported$volcano_plot_dir <- volcano_out$output_dir
-      }
+  message("[ConDA] Exporting volcano bridge tables.")
+  bridge_out <- tryCatch(
+    Go_ExportVolcanoBridge(
+      output_dir = volcano_bridge_root_dir %||% file.path(output_dir, "volcano_bridge"),
+      single_output_dir = single_volcano_bridge_root_dir %||% file.path(output_dir, "volcano_bridge"),
+      da_table = result$da_standardized$all_methods_standardized,
+      final_scores = result$final_scores,
+      filtered_metadata = result$filtered$metadata,
+      group_var = group_var,
+      group_1 = group_1,
+      group_2 = group_2,
+      analysis_mode = unique(result$final_scores$analysis_mode %||% NA_character_),
+      methods = methods,
+      distances = distances,
+      write_consensus = !single_method_mode,
+      file_prefix = file_prefix,
+      name = name
+    ),
+    error = function(e) {
+      message("[ConDA] Volcano bridge export failed: ", conditionMessage(e))
+      NULL
     }
+  )
+  result$volcano_bridge <- bridge_out
+  if (!is.null(bridge_out)) {
+    result$exported$volcano_bridge <- bridge_out$files
+    result$exported$volcano_bridge_dir <- bridge_out$dir
   }
 
   invisible(list(

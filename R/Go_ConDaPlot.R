@@ -221,11 +221,17 @@ Go_ConDaQCplot <- function(result,
 
   html_files <- NULL
   if (has_plotly) {
-    saved_html <- Go_SaveQCPanelHTML(
-      plots = plots,
-      file = summary_html,
-      plot_width = width * 100,
-      plot_height = height * 100
+    saved_html <- tryCatch(
+      Go_SaveQCPanelHTML(
+        plots = plots,
+        file = summary_html,
+        plot_width = width * 100,
+        plot_height = height * 100
+      ),
+      error = function(e) {
+        message("[ConDA] QC HTML generation failed: ", conditionMessage(e))
+        NULL
+      }
     )
     if (!is.null(saved_html) && file.exists(saved_html)) {
       html_files <- c(qc_summary_4panel = saved_html)
@@ -248,9 +254,7 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
   }
 
   widgets <- lapply(plots, function(p) {
-    plotly::partial_bundle(
-      plotly::ggplotly(p, tooltip = "text", width = plot_width, height = plot_height)
-    )
+    plotly::ggplotly(p, tooltip = "text", width = plot_width, height = plot_height)
   })
   plot_titles <- c(
     consensus_volcano = "Consensus Volcano",
@@ -333,6 +337,7 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
   htmltools::save_html(doc, file = tmp_html)
   on.exit(unlink(tmp_html), add = TRUE)
 
+  pandoc_ok <- FALSE
   if (requireNamespace("rmarkdown", quietly = TRUE)) {
     pandoc_info <- tryCatch(rmarkdown::find_pandoc(), error = function(e) NULL)
     pandoc_ver <- tryCatch(numeric_version(pandoc_info$version), error = function(e) NULL)
@@ -341,17 +346,26 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
     } else {
       "--self-contained"
     }
-    rmarkdown::pandoc_convert(
-      input = tmp_html,
-      output = file,
-      options = pandoc_opts
-    )
-  } else {
+    pandoc_ok <- tryCatch({
+      rmarkdown::pandoc_convert(
+        input = tmp_html,
+        output = file,
+        options = pandoc_opts
+      )
+      TRUE
+    }, error = function(e) {
+      message("[ConDA] pandoc embedding failed (", conditionMessage(e), "); saving non-self-contained HTML instead.")
+      FALSE
+    })
+  }
+
+  if (!pandoc_ok) {
     file.copy(tmp_html, file, overwrite = TRUE)
-    warning(
-      "rmarkdown is not available; saved a non-self-contained HTML file instead.",
-      call. = FALSE
-    )
+  }
+
+  if (!file.exists(file)) {
+    message("[ConDA] HTML output could not be saved.")
+    return(invisible(NULL))
   }
 
   invisible(file)

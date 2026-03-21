@@ -23,7 +23,6 @@ Go_ConDaDist(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
-  volcano_plot = FALSE,
   continue_on_error = TRUE
 )
 }
@@ -73,16 +72,13 @@ filtering.}
 
 \item{qc_plot}{Generate QC plots automatically after analysis.}
 
-\item{volcano_plot}{Generate volcano plots through Gotools
-\code{Go_volcanoPlot()} using bridge CSV files exported from \code{ConDA-dist}.}
-
 \item{continue_on_error}{Keep running remaining pairwise comparisons even if
 one comparison fails.}
 }
 \value{
-Output directory path. For a single comparison this is the
-comparison directory. For multiple comparisons this is the method-signature
-directory containing all comparison subdirectories.
+Project output root directory path (for example
+\code{DemoProj_YYMMDD}). All tables, bridge CSV files, QC plots, and volcano
+outputs are written beneath this directory.
 }
 \description{
 \code{Go_ConDaDist()} is the main orchestration entrypoint for \code{ConDA-dist}.
