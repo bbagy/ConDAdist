@@ -1,3 +1,22 @@
+Go_RenameGroupColumns <- function(df, group_1, group_2) {
+  g1 <- gsub("[^A-Za-z0-9_]", "_", group_1)
+  g2 <- gsub("[^A-Za-z0-9_]", "_", group_2)
+  rename_map <- c(
+    mean_group1        = paste0("mean_", g1),
+    mean_group2        = paste0("mean_", g2),
+    prevalence_group1  = paste0("prevalence_", g1),
+    prevalence_group2  = paste0("prevalence_", g2)
+  )
+  for (old in names(rename_map)) {
+    if (old %in% colnames(df)) colnames(df)[colnames(df) == old] <- rename_map[[old]]
+  }
+  if ("direction" %in% colnames(df)) {
+    df$direction <- gsub("up_in_group1", paste0("up_in_", g1), df$direction, fixed = TRUE)
+    df$direction <- gsub("up_in_group2", paste0("up_in_", g2), df$direction, fixed = TRUE)
+  }
+  df
+}
+
 #' Export standard output tables
 Go_ExportResults <- function(output_dir, filtered_feature_table, standardized_da,
                              da_consensus, beta_summary,
@@ -66,6 +85,7 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     x$mvar <- group_var
     x$name_token <- if (is.null(name)) NA_character_ else as.character(name)
     x$comparison_token <- comparison_token
+    x <- Go_RenameGroupColumns(x, group_1, group_2)
 
     bridge <- switch(
       method,
@@ -130,6 +150,7 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     consensus$mvar <- group_var
     consensus$name_token <- if (is.null(name)) NA_character_ else as.character(name)
     consensus$comparison_token <- comparison_token
+    consensus <- Go_RenameGroupColumns(consensus, group_1, group_2)
     consensus$condadist.P <- ifelse(
       consensus$fisher_combined_p < 0.05,
       ifelse(consensus$median_effect_size >= 0, "up", "down"),
