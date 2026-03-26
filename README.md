@@ -92,6 +92,8 @@ Key arguments:
 - `random_effects`: optional random-effect metadata variables
 - `methods`: DA methods to run
 - `distances`: up to 3 distance metrics per run
+- `orders`: optional ordered levels used for full pairwise runs
+- `pairwise_all`: if `TRUE`, run all pairwise contrasts in `orders`
 
 ## Mode Summary
 
@@ -111,6 +113,13 @@ The `single + dist` case is especially useful when a user strongly prefers one
 DA method but still wants to reinterpret that result with an additional
 community-structure axis. In that setting, the preferred DA tool is kept, while
 beta-diversity contribution is added as complementary evidence.
+
+Comparison behavior:
+
+- `pairwise_all = FALSE`
+  run `group_1` against each value in `group_2`
+- `pairwise_all = TRUE`
+  ignore `group_1` and `group_2`, and run all pairwise contrasts in `orders`
 
 ## Single-Method Mode
 

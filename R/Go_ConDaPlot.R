@@ -333,39 +333,40 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
       )
     )
   )
-  tmp_html <- tempfile(fileext = ".html")
-  htmltools::save_html(doc, file = tmp_html)
-  on.exit(unlink(tmp_html), add = TRUE)
+  # Step 1: save HTML + lib/ directly to the output path
+  # (htmltools::save_html writes plotly.js into libdir = "lib/" next to the file)
+  htmltools::save_html(doc, file = file)
 
-  pandoc_ok <- FALSE
+  if (!file.exists(file)) {
+    message("[ConDA] HTML output could not be saved.")
+    return(invisible(NULL))
+  }
+
+  # Step 2: try pandoc to embed lib/ resources inline (single self-contained file)
+  # If it succeeds, the lib/ dir becomes unnecessary but is left in place.
+  # If it fails, the HTML + lib/ pair already works when opened locally.
   if (requireNamespace("rmarkdown", quietly = TRUE)) {
     pandoc_info <- tryCatch(rmarkdown::find_pandoc(), error = function(e) NULL)
-    pandoc_ver <- tryCatch(numeric_version(pandoc_info$version), error = function(e) NULL)
+    pandoc_ver  <- tryCatch(numeric_version(pandoc_info$version), error = function(e) NULL)
     pandoc_opts <- if (!is.null(pandoc_ver) && pandoc_ver >= numeric_version("3.0")) {
       c("--embed-resources", "--standalone")
     } else {
       "--self-contained"
     }
-    pandoc_ok <- tryCatch({
-      rmarkdown::pandoc_convert(
-        input = tmp_html,
-        output = file,
-        options = pandoc_opts
-      )
-      TRUE
+    tmp_embedded <- paste0(file, ".tmp_embed.html")
+    embedded_ok <- tryCatch({
+      rmarkdown::pandoc_convert(input = file, output = tmp_embedded, options = pandoc_opts)
+      file.exists(tmp_embedded) && file.size(tmp_embedded) > 1000L
     }, error = function(e) {
-      message("[ConDA] pandoc embedding failed (", conditionMessage(e), "); saving non-self-contained HTML instead.")
+      message("[ConDA] pandoc embedding failed (", conditionMessage(e),
+              "); HTML saved with companion lib/ directory.")
       FALSE
     })
-  }
-
-  if (!pandoc_ok) {
-    file.copy(tmp_html, file, overwrite = TRUE)
-  }
-
-  if (!file.exists(file)) {
-    message("[ConDA] HTML output could not be saved.")
-    return(invisible(NULL))
+    if (embedded_ok) {
+      file.rename(tmp_embedded, file)   # replace with fully embedded version
+    } else {
+      unlink(tmp_embedded)
+    }
   }
 
   invisible(file)

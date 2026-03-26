@@ -10,11 +10,21 @@
 #' workflow. In consensus mode, it combines multiple DA methods and optional
 #' distance-based feature contribution scores into a final ranked table.
 #'
+#' Comparison modes:
+#'
+#' - `pairwise_all = FALSE`: run `group_1` against each value in `group_2`
+#' - `pairwise_all = TRUE`: ignore `group_1` and `group_2`, and run all
+#'   pairwise contrasts using `orders`
+#'
 #' @param psIN Standard `phyloseq` object used in the Go tool workflow.
 #' @param group_var Column in `sample_data(psIN)` that defines the comparison
 #'   groups.
-#' @param group_1 Baseline comparison group.
-#' @param group_2 One or more target groups compared against `group_1`.
+#' @param group_1 Baseline comparison group. Can be `NULL` when
+#'   `pairwise_all = TRUE`.
+#' @param group_2 One or more target groups compared against `group_1`. Can be
+#'   `NULL` when `pairwise_all = TRUE`.
+#' @param orders Optional ordered levels for `group_var`. When
+#'   `pairwise_all = TRUE`, all pairwise comparisons follow this order.
 #' @param project Project name used to create the dated output directory.
 #' @param covariates Optional character vector of metadata covariates.
 #' @param name Optional label appended to output file names.
@@ -52,6 +62,8 @@
 #' @param weights Named numeric vector controlling final score weights.
 #' @param qc_plot Generate QC plots automatically after analysis.
 #' Volcano bridge tables and Gotools volcano plots are generated automatically.
+#' @param pairwise_all If `TRUE`, ignore the baseline-vs-target pattern and run
+#'   all pairwise comparisons across ordered `group_var` levels.
 #' @param continue_on_error Keep running remaining pairwise comparisons even if
 #'   one comparison fails.
 #'
@@ -98,8 +110,9 @@
 Go_ConDaDist <- function(
   psIN,
   group_var,
-  group_1,
-  group_2,
+  group_1 = NULL,
+  group_2 = NULL,
+  orders = NULL,
   project,
   covariates = NULL,
   name = NULL,
@@ -118,6 +131,7 @@ Go_ConDaDist <- function(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
+  pairwise_all = FALSE,
   continue_on_error = TRUE
 ) {
   result <- Go_RunConDaDistMain(
@@ -126,6 +140,7 @@ Go_ConDaDist <- function(
     group_var = group_var,
     group_1 = group_1,
     group_2 = group_2,
+    orders = orders,
     project = project,
     covariates = covariates,
     name = name,
@@ -140,6 +155,7 @@ Go_ConDaDist <- function(
     n_beta_permutations = n_beta_permutations,
     weights = weights,
     qc_plot = qc_plot,
+    pairwise_all = pairwise_all,
     continue_on_error = continue_on_error
   )
   root_dir <- if (is.list(result) && !is.null(result$return_dir)) result$return_dir else result
@@ -153,8 +169,9 @@ Go_RunConDaDistMain <- function(
   feature_table,
   metadata = NULL,
   group_var,
-  group_1,
-  group_2,
+  group_1 = NULL,
+  group_2 = NULL,
+  orders = NULL,
   project,
   covariates = NULL,
   name = NULL,
@@ -169,6 +186,7 @@ Go_RunConDaDistMain <- function(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
+  pairwise_all = FALSE,
   continue_on_error = TRUE
 ) {
   if (is.null(project) || !nzchar(project)) {
@@ -209,18 +227,28 @@ Go_RunConDaDistMain <- function(
   output_layout <- Go_path(project = project, pdf = "no", table = "yes")
   root_output_dir <- output_layout$main
 
-  group_targets <- unique(as.character(group_2))
-  comparison_results <- lapply(group_targets, function(group_2_target) {
-    comparison_dir <- Go_CreateComparisonDir(output_layout$conda_dist, methods, group_1, group_2_target)
-    file_prefix <- Go_FilePrefix(project = project, group_1 = group_1, group_2 = group_2_target, name = name, methods = methods)
-    message("[ConDA] Starting comparison: ", group_1, " vs ", group_2_target)
+  comparison_plan <- Go_BuildComparisonPlan(
+    metadata = normalized_bundle$metadata,
+    group_var = group_var,
+    group_1 = group_1,
+    group_2 = group_2,
+    orders = orders,
+    pairwise_all = pairwise_all
+  )
+
+  comparison_results <- lapply(seq_len(nrow(comparison_plan)), function(i) {
+    group_1_target <- comparison_plan$group_1[i]
+    group_2_target <- comparison_plan$group_2[i]
+    comparison_dir <- Go_CreateComparisonDir(output_layout$conda_dist, methods, group_1_target, group_2_target)
+    file_prefix <- Go_FilePrefix(project = project, group_1 = group_1_target, group_2 = group_2_target, name = name, methods = methods)
+    message("[ConDA] Starting comparison: ", group_1_target, " vs ", group_2_target)
 
     run_one <- function() {
       Go_RunSingleDAensemble(
         feature_table = feature_table,
         metadata = metadata,
         group_var = group_var,
-        group_1 = group_1,
+        group_1 = group_1_target,
         group_2 = group_2_target,
         project = project,
         name = name,
@@ -251,7 +279,7 @@ Go_RunConDaDistMain <- function(
       run_one(),
       error = function(e) {
         Go_BuildFailedComparison(
-          group_1 = group_1,
+          group_1 = group_1_target,
           group_2 = group_2_target,
           comparison_dir = comparison_dir,
           file_prefix = file_prefix,
@@ -260,7 +288,7 @@ Go_RunConDaDistMain <- function(
       }
     )
   })
-  names(comparison_results) <- paste0(group_1, ".vs.", group_targets)
+  names(comparison_results) <- paste0(comparison_plan$group_1, ".vs.", comparison_plan$group_2)
 
   method_dir <- dirname(comparison_results[[1]]$comparison_dir)
 
@@ -574,14 +602,6 @@ Go_RunSingleDAAttempt <- function(
         stringsAsFactors = FALSE
       )
     )
-    if (length(methods) == 1 && identical(methods, "ancombc2")) {
-      method_controls <- method_controls %||% list()
-      method_controls$ancombc2 <- utils::modifyList(
-        method_controls$ancombc2 %||% list(),
-        list(legacy_filter_cutoff = 0.001)
-      )
-      message("[ConDA] Single ANCOM mode: applying Go_Ancom2-style legacy cutoff guidance (0.001).")
-    }
     if (length(methods) == 1 && identical(methods, "corncob")) {
       method_controls <- method_controls %||% list()
       method_controls$corncob <- utils::modifyList(

@@ -114,6 +114,56 @@ Go_AssertInputs <- function(feature_table, metadata, group_var, group_1, group_2
   invisible(TRUE)
 }
 
+Go_ResolveOrderedLevels <- function(metadata, group_var, orders = NULL) {
+  groups <- unique(as.character(metadata[[group_var]]))
+  groups <- groups[!is.na(groups) & nzchar(groups)]
+  if (is.null(orders) || length(orders) == 0) {
+    return(groups)
+  }
+  ordered <- intersect(as.character(orders), groups)
+  extra <- setdiff(groups, ordered)
+  c(ordered, extra)
+}
+
+Go_BuildComparisonPlan <- function(metadata, group_var, group_1, group_2,
+                                   orders = NULL, pairwise_all = FALSE) {
+  ordered_levels <- Go_ResolveOrderedLevels(metadata = metadata, group_var = group_var, orders = orders)
+
+  if (isTRUE(pairwise_all)) {
+    if (length(ordered_levels) < 2) {
+      stop("At least two levels are required in `group_var` to run pairwise comparisons.")
+    }
+    pair_mat <- utils::combn(ordered_levels, 2)
+    return(data.frame(
+      group_1 = pair_mat[1, ],
+      group_2 = pair_mat[2, ],
+      stringsAsFactors = FALSE
+    ))
+  }
+
+  if (is.null(group_1) || !nzchar(group_1)) {
+    stop("`group_1` must be provided unless `pairwise_all = TRUE`.")
+  }
+
+  targets <- unique(as.character(group_2))
+  targets <- targets[!is.na(targets) & nzchar(targets)]
+
+  if (!group_1 %in% ordered_levels || !all(targets %in% ordered_levels)) {
+    stop("`group_1` and `group_2` must be present in metadata[[group_var]].")
+  }
+
+  targets <- ordered_levels[ordered_levels %in% targets & ordered_levels != group_1]
+  if (length(targets) == 0) {
+    stop("No valid target groups remained after applying `orders`.")
+  }
+
+  data.frame(
+    group_1 = rep(group_1, length(targets)),
+    group_2 = targets,
+    stringsAsFactors = FALSE
+  )
+}
+
 Go_AlignInputs <- function(feature_table, metadata) {
   feature_table <- Go_AsMatrix(feature_table)
   sample_ids <- intersect(colnames(feature_table), rownames(metadata))
@@ -167,7 +217,7 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
   defaults <- switch(
     method,
     ancombc2 = list(
-      prv_cut = 0,
+      prv_cut = 0.1,
       lib_cut = 1000,
       p_adj_method = "BH",
       pseudo = 0,

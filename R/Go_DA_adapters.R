@@ -142,52 +142,114 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
     method_name = "ANCOMBC2",
     package_names = c("ANCOMBC", "phyloseq"),
     native_fun = function() {
-      prepared <- Go_PrepareDAInputs(
+      prepared_base <- Go_PrepareDAInputs(
         feature_table, metadata, group_var, group_1, group_2,
         covariates = covariates, random_effects = random_effects
       )
-      if (!is.null(control$legacy_filter_cutoff) &&
-          is.finite(control$legacy_filter_cutoff) &&
-          control$legacy_filter_cutoff > 0) {
-        legacy_filtered <- Go_FilterLegacyRelativeMean(
-          feature_table = prepared$feature_table,
-          metadata = prepared$metadata,
-          cutoff = control$legacy_filter_cutoff
-        )
-        prepared$feature_table <- legacy_filtered$feature_table
-        prepared$metadata <- legacy_filtered$metadata
+
+      prepare_attempt <- function(prepared, cutoff = NULL, drop_zero_sum = FALSE) {
+        attempt <- prepared
+
+        if (isTRUE(drop_zero_sum)) {
+          keep_samples <- colSums(attempt$feature_table, na.rm = TRUE) > 0
+          if (any(keep_samples)) {
+            attempt$feature_table <- attempt$feature_table[, keep_samples, drop = FALSE]
+            attempt$metadata <- attempt$metadata[colnames(attempt$feature_table), , drop = FALSE]
+          }
+        }
+
+        if (!is.null(cutoff) && is.finite(cutoff) && cutoff > 0) {
+          legacy_filtered <- Go_FilterLegacyRelativeMean(
+            feature_table = attempt$feature_table,
+            metadata = attempt$metadata,
+            cutoff = cutoff
+          )
+          attempt$feature_table <- legacy_filtered$feature_table
+          attempt$metadata <- legacy_filtered$metadata
+        }
+
+        attempt$feature_table <- Go_RemoveZeroVarianceFeatures(attempt$feature_table)
+        attempt
       }
-      prepared$feature_table <- Go_RemoveZeroVarianceFeatures(prepared$feature_table)
-      method_input <- Go_PrepareMethodInput(prepared, "ancombc2", control)
-      ps <- method_input$phyloseq
-      fit <- ANCOMBC::ancombc2(
-        data = ps,
-        taxa_are_rows = TRUE,
-        fix_formula = method_input$full_formula_terms,
-        rand_formula = Go_BuildRandomFormula(random_effects),
-        group = prepared$temp_group_var,
-        prv_cut = control$prv_cut,
-        lib_cut = control$lib_cut,
-        p_adj_method = control$p_adj_method,
-        pseudo = control$pseudo,
-        pseudo_sens = control$pseudo_sens,
-        struc_zero = control$struc_zero,
-        neg_lb = control$neg_lb,
-        alpha = alpha,
-        verbose = FALSE,
-        global = control$global,
-        pairwise = control$pairwise,
-        dunnet = control$dunnet,
-        trend = control$trend
+
+      run_attempt <- function(prepared) {
+        method_input <- Go_PrepareMethodInput(prepared, "ancombc2", control)
+        ps <- method_input$phyloseq
+        ANCOMBC::ancombc2(
+          data = ps,
+          taxa_are_rows = TRUE,
+          fix_formula = method_input$full_formula_terms,
+          rand_formula = Go_BuildRandomFormula(random_effects),
+          group = prepared$temp_group_var,
+          prv_cut = control$prv_cut,
+          lib_cut = control$lib_cut,
+          p_adj_method = control$p_adj_method,
+          pseudo = control$pseudo,
+          pseudo_sens = control$pseudo_sens,
+          struc_zero = control$struc_zero,
+          neg_lb = control$neg_lb,
+          alpha = alpha,
+          verbose = FALSE,
+          global = control$global,
+          pairwise = control$pairwise,
+          dunnet = control$dunnet,
+          trend = control$trend
+        )
+      }
+
+      prepared <- prepare_attempt(prepared_base)
+      fit <- tryCatch(
+        run_attempt(prepared),
+        error = function(e) e
       )
+      used_cutoff <- NULL
+
+      if (inherits(fit, "error")) {
+        cutoff <- 0.001
+        increment <- 0.0005
+        final_cutoff <- 0.01
+
+        while (cutoff <= final_cutoff) {
+          prepared_retry <- prepare_attempt(
+            prepared = prepared_base,
+            cutoff = cutoff,
+            drop_zero_sum = TRUE
+          )
+          fit_retry <- tryCatch(
+            run_attempt(prepared_retry),
+            error = function(e) e
+          )
+          if (!inherits(fit_retry, "error")) {
+            prepared <- prepared_retry
+            fit <- fit_retry
+            used_cutoff <- cutoff
+            break
+          }
+          cutoff <- cutoff + increment
+        }
+      }
+
+      if (inherits(fit, "error")) {
+        stop(conditionMessage(fit))
+      }
+
       res <- fit$res
       coef_col <- Go_GetANCOMBCCoefColumn(res, "lfc_")
       p_col <- Go_GetANCOMBCCoefColumn(res, "p_")
       q_col <- Go_GetANCOMBCCoefColumn(res, "q_")
 
+      control_note <- Go_ControlNote(control)
+      if (!is.null(used_cutoff)) {
+        control_note <- paste0(
+          control_note,
+          ", legacy_filter_cutoff=",
+          format(used_cutoff, trim = TRUE, scientific = FALSE)
+        )
+      }
+
       out <- Go_CreateBaseDAResult(
         prepared, "ancombc2", "coef",
-        Go_CombineNotes("Native ANCOMBC2 adapter", Go_ControlNote(control))
+        Go_CombineNotes("Native ANCOMBC2 adapter", control_note)
       )
       out$ASV <- Go_MakeLegacyASVKey(out$feature_id)
       out <- Go_FillDAResult(
