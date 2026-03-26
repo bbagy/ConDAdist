@@ -78,7 +78,7 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     if (!"ASV" %in% colnames(x) || all(is.na(x$ASV) | !nzchar(x$ASV))) {
       x$ASV <- x$feature_id
     }
-    x$baseline <- group_1
+    x$basline <- group_1
     x$smvar <- group_2
     x$bas.count <- bas.count
     x$smvar.count <- smvar.count
