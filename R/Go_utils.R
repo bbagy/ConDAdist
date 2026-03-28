@@ -1165,11 +1165,14 @@ Go_CreateQCPlotDir <- function(conda_dist_dir, group_1, group_2) {
 }
 
 Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback_fun) {
-  available <- all(vapply(package_names, requireNamespace, logical(1), quietly = TRUE))
-  if (!available) {
-    return(fallback_fun(
-      note = paste0("Missing package(s): ", paste(package_names[!vapply(package_names, requireNamespace, logical(1), quietly = TRUE)], collapse = ", "))
-    ))
+  missing_pkgs <- package_names[!vapply(package_names, requireNamespace, logical(1), quietly = TRUE)]
+  if (length(missing_pkgs) > 0) {
+    stop(
+      "[ConDA] ", method_name, " requires package(s) that are not installed: ",
+      paste(missing_pkgs, collapse = ", "), ".\n",
+      "Install with: BiocManager::install(c(",
+      paste0('"', missing_pkgs, '"', collapse = ", "), "))"
+    )
   }
 
   tryCatch(
@@ -1181,6 +1184,162 @@ Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback
       )
     }
   )
+}
+
+#' List all ConDA-dist dependencies with their install source
+Go_DependencyList <- function() {
+  list(
+    # Bioconductor
+    bioc = c(
+      "phyloseq",    # core input/output
+      "DESeq2",      # DA method
+      "S4Vectors",   # required by DESeq2 adapter
+      "ALDEx2",      # DA method
+      "ANCOMBC",     # DA method (includes ancombc2 + pulls in CVXR)
+      "Maaslin2",    # DA method
+      "BiocParallel" # used by several Bioc methods
+    ),
+    # CRAN
+    cran = c(
+      "corncob",    # DA method
+      "vegan",      # beta-diversity distances
+      "ggplot2",    # plotting
+      "ggrepel",    # label repulsion in plots
+      "rmarkdown",  # optional QC report export
+      "plotly",     # optional interactive plots
+      "htmlwidgets",
+      "htmltools"
+    )
+  )
+}
+
+#' Check which ConDA-dist dependencies are missing
+#'
+#' Returns a named list with $bioc and $cran vectors of missing package names.
+Go_CheckDependencies <- function() {
+  deps <- Go_DependencyList()
+  list(
+    bioc = deps$bioc[!vapply(deps$bioc, requireNamespace, logical(1), quietly = TRUE)],
+    cran = deps$cran[!vapply(deps$cran, requireNamespace, logical(1), quietly = TRUE)]
+  )
+}
+
+#' Install all missing ConDA-dist dependencies
+#'
+#' Call this once after loading ConDA-dist to ensure all required packages are
+#' available. Bioconductor packages are installed via \code{BiocManager};
+#' CRAN packages via \code{install.packages}.
+#'
+#' @param ask If \code{TRUE} (default in interactive sessions), prompt before
+#'   installing. Set \code{FALSE} to install without prompting.
+#'
+#' @examples
+#' \dontrun{
+#' Go_InstallDependencies()
+#' }
+Go_InstallDependencies <- function(ask = interactive()) {
+  # ANCOMBC depends on CVXR which depends on clarabel (a Rust package).
+  # clarabel must be compiled from source and requires the Rust toolchain.
+  # Check for cargo (Rust package manager) before attempting installation.
+  rust_packages <- c("clarabel", "CVXR")  # packages that need Rust to compile
+  needs_rust <- any(!vapply(rust_packages, requireNamespace, logical(1), quietly = TRUE))
+  if (needs_rust) {
+    cargo_found <- nzchar(Sys.which("cargo"))
+    if (!cargo_found) {
+      # Try common Rust install locations not always on PATH in R sessions
+      cargo_paths <- c(
+        path.expand("~/.cargo/bin/cargo"),
+        "/usr/local/bin/cargo",
+        "/opt/homebrew/bin/cargo"
+      )
+      cargo_found <- any(file.exists(cargo_paths))
+    }
+    if (!cargo_found) {
+      stop(
+        "[ConDA] ANCOMBC requires the 'clarabel' package which must be compiled from Rust source.\n",
+        "Rust toolchain (cargo) was not found on this system.\n\n",
+        "Install Rust by running this command in your Terminal:\n",
+        "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n",
+        "After installation, restart R and run Go_InstallDependencies() again.\n",
+        "If Rust is already installed, make sure 'cargo' is on your PATH."
+      )
+    }
+  }
+
+  deps <- Go_DependencyList()
+  all_bioc <- deps$bioc
+  all_cran <- deps$cran
+
+  # Separate into: (1) not loadable + not in installed.packages → fresh install
+  #                (2) in installed.packages but not loadable → broken, force reinstall
+  installed_names <- rownames(utils::installed.packages())
+
+  not_loadable_bioc <- all_bioc[!vapply(all_bioc, requireNamespace, logical(1), quietly = TRUE)]
+  not_loadable_cran <- all_cran[!vapply(all_cran, requireNamespace, logical(1), quietly = TRUE)]
+
+  fresh_bioc  <- not_loadable_bioc[!not_loadable_bioc %in% installed_names]
+  broken_bioc <- not_loadable_bioc[ not_loadable_bioc %in% installed_names]
+  fresh_cran  <- not_loadable_cran[!not_loadable_cran %in% installed_names]
+  broken_cran <- not_loadable_cran[ not_loadable_cran %in% installed_names]
+
+  all_needing_action <- c(fresh_bioc, broken_bioc, fresh_cran, broken_cran)
+
+  if (length(all_needing_action) == 0) {
+    message("[ConDA] All dependencies are installed.")
+    return(invisible(TRUE))
+  }
+
+  if (length(c(fresh_bioc, fresh_cran)) > 0)
+    message("[ConDA] Missing packages: ", paste(c(fresh_bioc, fresh_cran), collapse = ", "))
+  if (length(c(broken_bioc, broken_cran)) > 0)
+    message("[ConDA] Installed but broken (will force reinstall): ",
+            paste(c(broken_bioc, broken_cran), collapse = ", "))
+
+  if (ask) {
+    answer <- readline("[ConDA] Install/repair packages now? [y/N] ")
+    if (!tolower(trimws(answer)) %in% c("y", "yes")) {
+      message("[ConDA] Installation cancelled.")
+      return(invisible(FALSE))
+    }
+  }
+
+  if (!requireNamespace("BiocManager", quietly = TRUE)) {
+    message("[ConDA] Installing BiocManager first...")
+    utils::install.packages("BiocManager", quiet = TRUE)
+  }
+
+  if (length(fresh_cran) > 0) {
+    message("[ConDA] Installing CRAN packages: ", paste(fresh_cran, collapse = ", "))
+    utils::install.packages(fresh_cran, quiet = TRUE)
+  }
+  if (length(broken_cran) > 0) {
+    message("[ConDA] Force reinstalling broken CRAN packages: ", paste(broken_cran, collapse = ", "))
+    utils::install.packages(broken_cran, quiet = TRUE)
+  }
+
+  bioc_to_install <- c(fresh_bioc, broken_bioc)
+  if (length(bioc_to_install) > 0) {
+    force_flag <- length(broken_bioc) > 0
+    message("[ConDA] Installing Bioconductor packages",
+            if (force_flag) " (force = TRUE for broken ones)" else "", ": ",
+            paste(bioc_to_install, collapse = ", "))
+    BiocManager::install(bioc_to_install, ask = FALSE, update = FALSE,
+                         force = force_flag)
+  }
+
+  still_missing <- c(
+    all_bioc[!vapply(all_bioc, requireNamespace, logical(1), quietly = TRUE)],
+    all_cran[!vapply(all_cran, requireNamespace, logical(1), quietly = TRUE)]
+  )
+  if (length(still_missing) > 0) {
+    warning("[ConDA] The following packages still could not be loaded after installation: ",
+            paste(still_missing, collapse = ", "),
+            "\nTry running library(\"", still_missing[1], "\") manually to see the error.")
+    return(invisible(FALSE))
+  }
+
+  message("[ConDA] All dependencies installed successfully.")
+  invisible(TRUE)
 }
 
 Go_AdjustBetaPermutations <- function(n_beta_permutations, n_features) {

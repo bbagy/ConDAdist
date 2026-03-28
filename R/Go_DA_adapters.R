@@ -58,6 +58,32 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
     deseq2 = Go_DA_deseq2
   )
 
+  # Pre-flight: check required packages for all requested methods before running anything
+  required_packages <- list(
+    ancombc2 = c("ANCOMBC", "phyloseq"),
+    aldex2   = c("ALDEx2", "phyloseq"),
+    maaslin2 = c("Maaslin2", "phyloseq"),
+    corncob  = c("corncob", "phyloseq"),
+    deseq2   = c("DESeq2", "phyloseq")
+  )
+  missing_by_method <- lapply(methods, function(m) {
+    pkgs <- required_packages[[m]]
+    if (is.null(pkgs)) return(NULL)
+    miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+    if (length(miss) > 0) miss else NULL
+  })
+  names(missing_by_method) <- methods
+  missing_by_method <- Filter(Negate(is.null), missing_by_method)
+  if (length(missing_by_method) > 0) {
+    lines <- paste0("  ", names(missing_by_method), ": ",
+                    vapply(missing_by_method, paste, character(1), collapse = ", "))
+    stop(
+      "[ConDA] Required package(s) not installed — analysis cannot proceed.\n",
+      paste(lines, collapse = "\n"), "\n",
+      "Run Go_InstallDependencies() to install all ConDA-dist dependencies automatically."
+    )
+  }
+
   results <- vector("list", length(methods))
   names(results) <- methods
 
