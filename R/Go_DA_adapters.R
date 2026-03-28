@@ -124,6 +124,7 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("ancombc2", control)
   native_check <- Go_ShouldUseNativeAdapter("ancombc2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
+    message("[ConDA] WARNING: ANCOMBC2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
     return(Go_BasicEffectAdapter(
       feature_table = feature_table,
       metadata = metadata,
@@ -131,10 +132,10 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
       group_1 = group_1,
       group_2 = group_2,
       covariates = covariates,
-      method = "ancombc2",
-      effect_type = "coef",
-      notes = native_check$note,
-      control = control,
+      method = "wilcoxon",
+      effect_type = "log2FC",
+      notes = paste0("wilcoxon fallback (ancombc2 skipped: ", native_check$note, ")"),
+      control = NULL,
       alpha = alpha
     ))
   }
@@ -264,6 +265,7 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
       out
     },
     fallback_fun = function(note) {
+      message("[ConDA] WARNING: ANCOMBC2 failed — running Wilcoxon fallback. Reason: ", note)
       Go_BasicEffectAdapter(
         feature_table = feature_table,
         metadata = metadata,
@@ -271,10 +273,10 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
         group_1 = group_1,
         group_2 = group_2,
         covariates = covariates,
-        method = "ancombc2",
-        effect_type = "coef",
-        notes = note,
-        control = control,
+        method = "wilcoxon",
+        effect_type = "log2FC",
+        notes = paste0("wilcoxon fallback (ancombc2 failed: ", note, ")"),
+        control = NULL,
         alpha = alpha
       )
     }
@@ -288,6 +290,7 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("aldex2", control)
   native_check <- Go_ShouldUseNativeAdapter("aldex2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
+    message("[ConDA] WARNING: ALDEx2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
     return(Go_BasicEffectAdapter(
       feature_table = feature_table,
       metadata = metadata,
@@ -295,10 +298,10 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
       group_1 = group_1,
       group_2 = group_2,
       covariates = covariates,
-      method = "aldex2",
-      effect_type = "aldex_effect",
-      notes = native_check$note,
-      control = control,
+      method = "wilcoxon",
+      effect_type = "log2FC",
+      notes = paste0("wilcoxon fallback (aldex2 skipped: ", native_check$note, ")"),
+      control = NULL,
       alpha = alpha
     ))
   }
@@ -405,6 +408,7 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
       out
     },
     fallback_fun = function(note) {
+      message("[ConDA] WARNING: ALDEx2 failed — running Wilcoxon fallback. Reason: ", note)
       Go_BasicEffectAdapter(
         feature_table = feature_table,
         metadata = metadata,
@@ -412,10 +416,10 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
         group_1 = group_1,
         group_2 = group_2,
         covariates = covariates,
-        method = "aldex2",
-        effect_type = "aldex_effect",
-        notes = note,
-        control = control,
+        method = "wilcoxon",
+        effect_type = "log2FC",
+        notes = paste0("wilcoxon fallback (aldex2 failed: ", note, ")"),
+        control = NULL,
         alpha = alpha
       )
     }
@@ -429,6 +433,7 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("maaslin2", control)
   native_check <- Go_ShouldUseNativeAdapter("maaslin2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
+    message("[ConDA] WARNING: MaAsLin2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
     return(Go_BasicEffectAdapter(
       feature_table = feature_table,
       metadata = metadata,
@@ -436,10 +441,10 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
       group_1 = group_1,
       group_2 = group_2,
       covariates = covariates,
-      method = "maaslin2",
-      effect_type = "coef",
-      notes = native_check$note,
-      control = control,
+      method = "wilcoxon",
+      effect_type = "log2FC",
+      notes = paste0("wilcoxon fallback (maaslin2 skipped: ", native_check$note, ")"),
+      control = NULL,
       alpha = alpha
     ))
   }
@@ -494,6 +499,7 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
       out
     },
     fallback_fun = function(note) {
+      message("[ConDA] WARNING: MaAsLin2 failed — running Wilcoxon fallback. Reason: ", note)
       Go_BasicEffectAdapter(
         feature_table = feature_table,
         metadata = metadata,
@@ -501,9 +507,9 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
         group_1 = group_1,
         group_2 = group_2,
         covariates = covariates,
-        method = "maaslin2",
-        effect_type = "coef",
-        notes = note,
+        method = "wilcoxon",
+        effect_type = "log2FC",
+        notes = paste0("wilcoxon fallback (maaslin2 failed: ", note, ")"),
         control = control,
         alpha = alpha
       )
@@ -518,6 +524,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("corncob", control)
   native_check <- Go_ShouldUseNativeAdapter("corncob", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
+    message("[ConDA] WARNING: corncob skipped — running Wilcoxon fallback. Reason: ", native_check$note)
     return(Go_BasicEffectAdapter(
       feature_table = feature_table,
       metadata = metadata,
@@ -525,10 +532,10 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
       group_1 = group_1,
       group_2 = group_2,
       covariates = covariates,
-      method = "corncob",
-      effect_type = "coef",
-      notes = native_check$note,
-      control = control,
+      method = "wilcoxon",
+      effect_type = "log2FC",
+      notes = paste0("wilcoxon fallback (corncob skipped: ", native_check$note, ")"),
+      control = NULL,
       alpha = alpha
     ))
   }
@@ -629,6 +636,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
       second_try
     },
     fallback_fun = function(note) {
+      message("[ConDA] WARNING: corncob failed — running Wilcoxon fallback. Reason: ", note)
       Go_BasicEffectAdapter(
         feature_table = feature_table,
         metadata = metadata,
@@ -636,10 +644,10 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
         group_1 = group_1,
         group_2 = group_2,
         covariates = covariates,
-        method = "corncob",
-        effect_type = "coef",
-        notes = note,
-        control = control,
+        method = "wilcoxon",
+        effect_type = "log2FC",
+        notes = paste0("wilcoxon fallback (corncob failed: ", note, ")"),
+        control = NULL,
         alpha = alpha
       )
     }
@@ -653,6 +661,7 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("deseq2", control)
   native_check <- Go_ShouldUseNativeAdapter("deseq2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
+    message("[ConDA] WARNING: DESeq2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
     return(Go_BasicEffectAdapter(
       feature_table = feature_table,
       metadata = metadata,
@@ -660,10 +669,10 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
       group_1 = group_1,
       group_2 = group_2,
       covariates = covariates,
-      method = "deseq2",
+      method = "wilcoxon",
       effect_type = "log2FC",
-      notes = native_check$note,
-      control = control,
+      notes = paste0("wilcoxon fallback (deseq2 skipped: ", native_check$note, ")"),
+      control = NULL,
       alpha = alpha
     ))
   }
@@ -729,6 +738,7 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
       out
     },
     fallback_fun = function(note) {
+      message("[ConDA] WARNING: DESeq2 failed — running Wilcoxon fallback. Reason: ", note)
       Go_BasicEffectAdapter(
         feature_table = feature_table,
         metadata = metadata,
@@ -736,10 +746,10 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
         group_1 = group_1,
         group_2 = group_2,
         covariates = covariates,
-        method = "deseq2",
+        method = "wilcoxon",
         effect_type = "log2FC",
-        notes = note,
-        control = control,
+        notes = paste0("wilcoxon fallback (deseq2 failed: ", note, ")"),
+        control = NULL,
         alpha = alpha
       )
     }

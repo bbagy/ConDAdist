@@ -94,6 +94,9 @@ Key arguments:
 - `distances`: up to 3 distance metrics per run
 - `orders`: optional ordered levels used for full pairwise runs
 - `pairwise_all`: if `TRUE`, run all pairwise contrasts in `orders`
+- `filter_scope`: feature filtering scope for DA runs.
+  - `"pairwise"`: subset to the current `group_1` vs `group_2` comparison first, then calculate prevalence/abundance filtering on that subset.
+  - `"global"`: calculate prevalence/abundance filtering on the full aligned dataset before running pairwise DA.
 
 ## Mode Summary
 
@@ -121,6 +124,64 @@ Comparison behavior:
 - `pairwise_all = TRUE`
   ignore `group_1` and `group_2`, and run all pairwise contrasts in `orders`
 
+Filtering behavior:
+
+- `filter_scope = "pairwise"`
+  default. Recommended for baseline-vs-target microbiome DA because feature filtering is evaluated within the current pairwise subset.
+- `filter_scope = "global"`
+  optional. Keeps one shared feature universe across comparisons, but may retain sparse features that are not well-supported within a given pairwise contrast.
+
+Why this matters:
+
+- In sparse microbiome data, global filtering can keep features that pass prevalence in the full cohort but are nearly absent within a specific pairwise contrast.
+- Those features can inflate instability in DA methods, especially effect-size-heavy outputs such as `DESeq2` volcano plots.
+- `pairwise` filtering keeps the tested feature universe closer to the actual comparison question.
+
+### When to use `filter_scope = "global"`
+
+For most analyses `"pairwise"` is the correct choice. Use `"global"` only when
+one of the following applies:
+
+**1. Multi-group `pairwise_all = TRUE` runs where feature universe consistency is required**
+
+When running all pairwise contrasts with `pairwise_all = TRUE` (e.g., A vs B,
+A vs C, B vs C), each pairwise subset may produce a different feature set
+under `"pairwise"` filtering. If downstream comparisons of effect sizes or
+rankings across contrasts must be based on an identical feature universe,
+`"global"` ensures a single consistent set is used throughout.
+
+```r
+res_dir <- Go_ConDaDist(
+  psIN = ps,
+  group_var = "TreatmentGroup",
+  orders = c("Control", "Low", "High"),
+  pairwise_all = TRUE,
+  filter_scope = "global"   # same features in all three contrasts
+)
+```
+
+**2. Very small pairwise sample sizes**
+
+When group sizes drop to 3–5 samples per arm, `"pairwise"` filtering can be
+overly aggressive and discard biologically relevant features that happen to
+appear at low prevalence in the small subset. `"global"` uses the full cohort
+prevalence, which is more stable at small N.
+
+**3. Reviewer or publication requirements for a consistent feature universe**
+
+Some journals or analysis platforms require that the same features are reported
+across all subgroup comparisons. In that case, `"global"` ensures that every
+comparison table shares the same row set.
+
+**Practical summary:**
+
+| Scenario | Recommended `filter_scope` |
+|---|---|
+| Standard two-group comparison | `"pairwise"` (default) |
+| All-pairwise multi-group run | `"global"` for cross-contrast consistency |
+| Very small n (< 5 per group) | `"global"` to avoid over-filtering |
+| Publication requiring identical feature lists | `"global"` |
+
 ## Single-Method Mode
 
 Single mode is triggered when:
@@ -138,7 +199,8 @@ res_dir <- Go_ConDaDist(
   group_2 = "GLP-2",
   project = "DemoProj",
   methods = "deseq2",
-  distances = NULL
+  distances = NULL,
+  filter_scope = "pairwise"
 )
 ```
 
@@ -183,7 +245,8 @@ res_dir <- Go_ConDaDist(
   group_2 = "GLP-2",
   project = "DemoProj",
   methods = c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob"),
-  distances = c("bray", "jaccard", "aitchison")
+  distances = c("bray", "jaccard", "aitchison"),
+  filter_scope = "pairwise"
 )
 ```
 
@@ -306,7 +369,8 @@ res_dir <- Go_ConDaDist(
   group_2 = "GLP-2",
   project = "DemoProj",
   methods = c("deseq2", "aldex2"),
-  distances = NULL
+  distances = NULL,
+  filter_scope = "pairwise"
 )
 ```
 
@@ -365,6 +429,212 @@ When to set `distances = NULL`:
 - when you only want a single-method DA result
 - when you want a fast DA-only consensus run
 - when beta-diversity contribution is not part of the current question
+
+## Method Settings
+
+`ConDA-dist` keeps one shared interface across DA methods, but each method still
+uses its own default controls. These defaults are chosen to stay reasonably
+close to microbiome use cases while avoiding overly aggressive transformation or
+filtering inside the adapter itself.
+
+### Native Adapter Thresholds
+
+Before running a native method, `ConDA-dist` checks that there are enough
+samples and features to support it. If the check fails, a Wilcoxon fallback
+is triggered (see Fallback Behavior below).
+
+| Method    | Min samples per group | Min features |
+|-----------|-----------------------|--------------|
+| `ancombc2`| 3                     | 10           |
+| `deseq2`  | 3                     | 5            |
+| `corncob` | 3                     | 10           |
+| `aldex2`  | 2                     | 2            |
+| `maaslin2`| 2                     | 2            |
+
+Note: group size is counted from the actual pairwise metadata after sample
+alignment. If `group_var` is stored as a factor with additional levels not
+part of the current comparison, those extra levels are ignored correctly.
+
+### `ancombc2`
+
+Default controls:
+
+- `prv_cut = 0.1`
+- `lib_cut = 1000`
+- `p_adj_method = "BH"`
+- `pseudo = 0`
+- `pseudo_sens = FALSE`
+- `struc_zero = TRUE`
+- `neg_lb = TRUE`
+- `global = TRUE`
+- `pairwise = FALSE`
+- `dunnet = FALSE`
+- `trend = FALSE`
+
+Interpretation:
+
+- Uses ANCOM-BC2 as the primary microbiome-native DA method.
+- Handles compositional bias through log-linear bias correction.
+- Structural zeros are enabled by default, which is important for sparse data.
+- Pairwise contrasts in `ConDA-dist` are handled by the outer comparison loop,
+  so the adapter itself keeps `pairwise = FALSE`.
+- Supports covariates and random effects via `fix_formula` and `rand_formula`.
+- If the first run fails, the adapter automatically retries with incremental
+  legacy relative-mean filtering (0.001 to 0.01) until convergence.
+
+### `aldex2`
+
+Default controls:
+
+- `mc_samples = 128`
+- `denom = "iqlr"`
+- `use_mc = FALSE`
+- `paired_test = FALSE`
+- `zero_replace = FALSE`
+- `zero_replace_value = 0.5`
+- `seed = 1`
+
+Interpretation:
+
+- CLR/Dirichlet-based compositional DA method.
+- Uses `iqlr` as the default denominator for robustness to asymmetric
+  differential abundance, which is common in microbiome data.
+- In simple two-group runs with no covariates, the adapter uses the native
+  ALDEx2 Wilcoxon t-test path (`wi.ep`, `wi.eBH`).
+- When covariates are present, the adapter automatically switches to the
+  ALDEx2 GLM path.
+- Seed is fixed at `1` by default for reproducibility of the Monte Carlo draws.
+
+### `maaslin2`
+
+Default controls:
+
+- `min_abundance = 0`
+- `min_prevalence = 0`
+- `normalization = "TSS"`
+- `transform = "LOG"`
+- `analysis_method = "LM"`
+- `max_significance = 1`
+- `standardize = FALSE`
+
+Interpretation:
+
+- Linear mixed model DA with TSS+LOG normalization.
+- Filtering (`min_abundance = 0`, `min_prevalence = 0`) is intentionally
+  set to zero so that feature selection is controlled by the upstream
+  `Go_FilterFeatures` step, not repeated inside the adapter.
+- Supports covariates as fixed effects and `random_effects` for repeated
+  measures or nested designs.
+- Single-mode MaAsLin2 (`methods = "maaslin2"`, `distances = NULL`) uses a
+  special native workflow that supports multi-level `group_2` comparisons.
+
+### `corncob`
+
+Default controls:
+
+- `phi_formula = "auto"`
+- `phi_null_formula = "auto"`
+- `boot = FALSE`
+- `fdr_cutoff = 1`
+- `filter_discriminant = TRUE`
+- `min_prevalence = 0.05`
+- `min_total_count = 10`
+- `legacy_filter_cutoff = 0`
+
+Retry controls (applied automatically on first failure):
+
+- `retry_min_prevalence = 0.1`
+- `retry_min_total_count = 20`
+- `retry_legacy_filter_cutoff = 0.001`
+- `retry_phi_formula = "~ 1"`
+- `retry_phi_null_formula = "~ 1"`
+
+Interpretation:
+
+- Beta-binomial DA model that handles overdispersion directly.
+- Most stability-sensitive method in the set. Convergence can fail on very
+  sparse or unbalanced data.
+- `phi_formula = "auto"` uses the same formula as the mean model by default.
+- The adapter applies a two-attempt retry strategy: if the first Wald test
+  fails, it retries with stricter feature filtering and a simplified
+  dispersion formula (`~ 1`), which improves convergence in difficult cases.
+- In single-method mode, additional stability-focused defaults are applied
+  automatically (stricter prevalence and count thresholds).
+
+### `deseq2`
+
+Default controls:
+
+- `min_count = 0`
+- `zero_replace = FALSE`
+- `zero_replace_value = 1`
+- `size_factors_type = "poscounts"`
+- `lfc_shrink = TRUE`
+- `lfc_shrink_type = "ashr"`
+
+Size factor fallback chain:
+
+`ConDA-dist` uses a robust DESeq2 wrapper (`Go_RunDESeqRobust`) that attempts
+size factor estimation in order until one succeeds:
+
+1. `poscounts` (default) — geometric mean of non-zero counts; more stable
+   for sparse microbiome tables than the standard ratio method
+2. `iterate` — iterative estimation; used when `poscounts` fails
+
+This fallback chain is recorded in the `notes` column of the standardized
+output (`size_factor_type=<method_used>`).
+
+Interpretation:
+
+- Uses `poscounts` size-factor estimation by default, which is more stable
+  than the basic ratio method for sparse microbiome count tables.
+- Applies log-fold-change shrinkage (`ashr`) by default to reduce extreme
+  LFC artifacts caused by low-count or sparse features.
+- LFC shrinkage is applied after `DESeq2::results()` using
+  `DESeq2::lfcShrink()` with `type = "ashr"`. If `lfcShrink` fails, the
+  unshrunken LFC is used and a warning is printed.
+- Still best interpreted as a supportive count-model DA method. It is not
+  microbiome-native but is widely used as a reference in benchmarks.
+
+## Fallback Behavior
+
+When a native DA method cannot run — due to insufficient sample size, too few
+features, missing package, or a runtime error — `ConDA-dist` runs a Wilcoxon
+rank-sum test as a transparent fallback instead of silently substituting a
+result under the original method name.
+
+Fallback result labeling:
+
+- `method` column is set to `"wilcoxon"` (not the original method name)
+- `notes` column records which method failed and why
+- A `[ConDA] WARNING` message is printed to the console
+
+Example console output:
+
+```
+[ConDA] WARNING: DESeq2 skipped — running Wilcoxon fallback. Reason: Native deseq2 skipped: smallest group has 3 sample(s); using robust fallback.
+```
+
+What the Wilcoxon fallback does:
+
+- Effect size: `log2(mean(group2) / mean(group1))` with a small pseudocount
+- P-value: Wilcoxon rank-sum test per feature
+- Q-value: BH correction across all features
+- Bridge file: written as `wilcoxon.(...).csv` for `Go_volcanoPlot`
+
+Fallback results in consensus:
+
+- `"wilcoxon"` is not a requested method, so it does not enter the DA
+  consensus scoring.
+- Its bridge file is still exported and rendered into a separate volcano plot
+  for visual inspection.
+
+This design ensures that:
+
+- Results are always honest about which method actually ran.
+- Visualization is still available even when a method fails.
+- Consensus scoring is never polluted by a Wilcoxon result pretending to be
+  a model-based method.
 
 ## Return Value
 

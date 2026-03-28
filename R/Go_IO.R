@@ -87,48 +87,63 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     x$comparison_token <- comparison_token
     x <- Go_RenameGroupColumns(x, group_1, group_2)
 
+    # For methods that use internal multiple-testing correction (e.g. DESeq2 independent
+    # filtering), q_value can be NA for low-count features that were removed from the BH
+    # correction set.  NA q-values cause ggplot2 shape aesthetics to drop those rows
+    # entirely, making the volcano look empty.  We fall back to an external BH adjustment
+    # over all features that have a valid p_value so that every tested feature gets a
+    # non-NA FDR estimate (Gotools behaviour).
+    .fill_q <- function(pv, qv) {
+      na_q <- is.na(qv) & !is.na(pv)
+      if (any(na_q)) {
+        qv[na_q] <- stats::p.adjust(pv[na_q], method = "BH")
+      }
+      qv
+    }
+
     bridge <- switch(
       method,
-      deseq2 = transform(
-        x,
-        log2FoldChange = coef,
-        pvalue = p_value,
-        padj = q_value,
-        deseq2.P = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
-        deseq2.FDR = ifelse(q_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS")
-      ),
-      aldex2 = transform(
-        x,
-        diff.btw = coef,
-        wi.ep = p_value,
-        wi.eBH = q_value,
-        aldex2.P = ifelse(p_value < 0.05, ifelse(effect_size >= 0, "up", "down"), "NS"),
-        aldex2.FDR = ifelse(q_value < 0.05, ifelse(effect_size >= 0, "up", "down"), "NS")
-      ),
-      maaslin2 = transform(
-        x,
-        maaslin2_coef = coef,
-        maaslin2_pvalue = p_value,
-        maaslin2_qvalue = q_value,
-        maaslin2.P = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
-        maaslin2.FDR = ifelse(q_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS")
-      ),
-      ancombc2 = transform(
-        x,
-        lfc_ancombc = coef,
-        pvalue_ancombc = p_value,
-        qvalue_ancombc = q_value,
-        ancom2.P = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
-        ancom2.FDR = ifelse(q_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS")
-      ),
-      corncob = transform(
-        x,
-        corncob_coef = coef,
-        corncob_pvalue = p_value,
-        corncob_qvalue = q_value,
-        corncob.P = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
-        corncob.FDR = ifelse(q_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS")
-      ),
+      deseq2 = {
+        padj_bridge <- .fill_q(x$p_value, x$q_value)
+        transform(
+          x,
+          log2FoldChange = coef,
+          pvalue = p_value,
+          padj = padj_bridge,
+          deseq2.P = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
+          deseq2.FDR = ifelse(padj_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS")
+        )
+      },
+      aldex2 = {
+        q_bridge <- .fill_q(x$p_value, x$q_value)
+        transform(x, diff.btw = coef, wi.ep = p_value, wi.eBH = q_bridge,
+          aldex2.P   = ifelse(p_value < 0.05, ifelse(effect_size >= 0, "up", "down"), "NS"),
+          aldex2.FDR = ifelse(q_bridge < 0.05, ifelse(effect_size >= 0, "up", "down"), "NS"))
+      },
+      maaslin2 = {
+        q_bridge <- .fill_q(x$p_value, x$q_value)
+        transform(x, maaslin2_coef = coef, maaslin2_pvalue = p_value, maaslin2_qvalue = q_bridge,
+          maaslin2.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
+          maaslin2.FDR = ifelse(q_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS"))
+      },
+      ancombc2 = {
+        q_bridge <- .fill_q(x$p_value, x$q_value)
+        transform(x, lfc_ancombc = coef, pvalue_ancombc = p_value, qvalue_ancombc = q_bridge,
+          ancom2.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
+          ancom2.FDR = ifelse(q_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS"))
+      },
+      corncob = {
+        q_bridge <- .fill_q(x$p_value, x$q_value)
+        transform(x, corncob_coef = coef, corncob_pvalue = p_value, corncob_qvalue = q_bridge,
+          corncob.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
+          corncob.FDR = ifelse(q_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS"))
+      },
+      wilcoxon = {
+        q_bridge <- .fill_q(x$p_value, x$q_value)
+        transform(x, log2FoldChange = coef, pvalue = p_value, padj = q_bridge,
+          wilcoxon.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
+          wilcoxon.FDR = ifelse(q_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS"))
+      },
       x
     )
 

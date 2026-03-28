@@ -132,7 +132,8 @@ Go_ConDaDist <- function(
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
   pairwise_all = FALSE,
-  continue_on_error = TRUE
+  continue_on_error = TRUE,
+  filter_scope = "pairwise"
 ) {
   result <- Go_RunConDaDistMain(
     feature_table = psIN,
@@ -156,7 +157,8 @@ Go_ConDaDist <- function(
     weights = weights,
     qc_plot = qc_plot,
     pairwise_all = pairwise_all,
-    continue_on_error = continue_on_error
+    continue_on_error = continue_on_error,
+    filter_scope = filter_scope
   )
   root_dir <- if (is.list(result) && !is.null(result$return_dir)) result$return_dir else result
   resolved_methods <- Go_ResolveMethods(methods)
@@ -187,7 +189,8 @@ Go_RunConDaDistMain <- function(
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
   pairwise_all = FALSE,
-  continue_on_error = TRUE
+  continue_on_error = TRUE,
+  filter_scope = "pairwise"
 ) {
   if (is.null(project) || !nzchar(project)) {
     stop("`project` must be provided.")
@@ -267,7 +270,8 @@ Go_RunConDaDistMain <- function(
         volcano_bridge_root_dir = output_layout$conda_dist_volcano,
         single_volcano_bridge_root_dir = output_layout$conda_dist_single_volcano,
         output_dir = comparison_dir,
-        file_prefix = file_prefix
+        file_prefix = file_prefix,
+        filter_scope = filter_scope
       )
     }
 
@@ -368,7 +372,8 @@ Go_RunSingleDAensemble <- function(
   volcano_bridge_root_dir = NULL,
   single_volcano_bridge_root_dir = NULL,
   output_dir,
-  file_prefix = NULL
+  file_prefix = NULL,
+  filter_scope = "pairwise"
 ) {
   input_bundle <- Go_NormalizeInputBundle(
     feature_table = feature_table,
@@ -420,7 +425,8 @@ Go_RunSingleDAensemble <- function(
         n_beta_permutations = n_beta_permutations,
         weights = weights,
         output_dir = output_dir,
-        file_prefix = file_prefix
+        file_prefix = file_prefix,
+        filter_scope = filter_scope
       ),
       error = function(e) {
         list(status = "failed", error_message = conditionMessage(e))
@@ -580,7 +586,8 @@ Go_RunSingleDAAttempt <- function(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   output_dir,
-  file_prefix = NULL
+  file_prefix = NULL,
+  filter_scope = "pairwise"
 ) {
   message("[ConDA] Aligning samples and filtering features.")
   aligned <- Go_AlignInputs(
@@ -588,20 +595,25 @@ Go_RunSingleDAAttempt <- function(
     metadata = input_bundle$metadata
   )
   single_method_mode <- length(methods) == 1 && (is.null(distances) || length(distances) == 0)
+
+  filter_input <- aligned
+  if (identical(filter_scope, "pairwise")) {
+    pairwise_mask <- as.character(filter_input$metadata[[group_var]]) %in% c(group_1, group_2)
+    filter_input$feature_table <- filter_input$feature_table[, pairwise_mask, drop = FALSE]
+    filter_input$metadata <- filter_input$metadata[pairwise_mask, , drop = FALSE]
+  }
+  filtered <- Go_FilterFeatures(
+    feature_table = filter_input$feature_table,
+    metadata = filter_input$metadata,
+    prevalence = prevalence,
+    abundance = abundance,
+    output_dir = NULL
+  )
+  filtered$filter_summary$filter_scope <- filter_scope
+
   if (isTRUE(single_method_mode)) {
-    message("[ConDA] Single-method mode: using aligned input without additional feature filtering.")
-    filtered <- list(
-      feature_table = aligned$feature_table,
-      metadata = aligned$metadata,
-      filter_summary = data.frame(
-        n_features_input = nrow(aligned$feature_table),
-        n_features_retained = nrow(aligned$feature_table),
-        prevalence = NA_real_,
-        abundance = NA_real_,
-        filter_mode = "aligned_only",
-        stringsAsFactors = FALSE
-      )
-    )
+    message("[ConDA] Single-method mode: filter_scope = \"", filter_scope, "\" (",
+            nrow(filtered$feature_table), " features retained).")
     if (length(methods) == 1 && identical(methods, "corncob")) {
       method_controls <- method_controls %||% list()
       method_controls$corncob <- utils::modifyList(
@@ -620,14 +632,6 @@ Go_RunSingleDAAttempt <- function(
       )
       message("[ConDA] Single corncob mode: applying stability-focused filtering and retry settings.")
     }
-  } else {
-    filtered <- Go_FilterFeatures(
-      feature_table = aligned$feature_table,
-      metadata = aligned$metadata,
-      prevalence = prevalence,
-      abundance = abundance,
-      output_dir = NULL
-    )
   }
 
   if (nrow(filtered$feature_table) < 2) {

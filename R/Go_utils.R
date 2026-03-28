@@ -336,8 +336,30 @@ Go_PrepareMethodInput <- function(prepared, method, control = list()) {
   out
 }
 
+Go_DetectAbundanceType <- function(feature_table) {
+  lib_sizes <- colSums(feature_table, na.rm = TRUE)
+  mean_lib <- mean(lib_sizes, na.rm = TRUE)
+  is_integer_like <- mean(abs(feature_table - round(feature_table)) < 1e-8, na.rm = TRUE) > 0.99
+  prop_like <- mean(abs(lib_sizes - 1) < 0.05, na.rm = TRUE) > 0.8
+  percent_like <- mean(abs(lib_sizes - 100) < 5, na.rm = TRUE) > 0.8
+  if (prop_like || percent_like) "relative"
+  else if (is_integer_like && mean_lib > 1000) "absolute"
+  else "unknown"
+}
+
 Go_PrepareCountMatrix <- function(feature_table, min_count = 0,
                                   zero_replace = FALSE, zero_replace_value = 0.5) {
+  abundance_type <- Go_DetectAbundanceType(feature_table)
+  if (abundance_type == "relative") {
+    lib_sizes <- colSums(feature_table, na.rm = TRUE)
+    mean_lib <- mean(lib_sizes, na.rm = TRUE)
+    scale_factor <- if (mean_lib <= 1.5) 1e4L else round(median(lib_sizes))
+    feature_table <- feature_table * scale_factor
+    message(sprintf(
+      "[ConDA] Relative abundance detected. Converted to pseudo-counts (scale = %s).",
+      format(scale_factor, big.mark = ",")
+    ))
+  }
   counts <- round(pmax(feature_table, 0))
   counts[counts < min_count] <- 0
   if (zero_replace) {
@@ -485,12 +507,10 @@ Go_CreateBaseDAResult <- function(prepared, method, effect_type, notes = NA_char
 }
 
 Go_GetMinGroupSize <- function(metadata, group_var, group_1, group_2) {
-  keep <- metadata[[group_var]] %in% c(group_1, group_2)
-  grp <- metadata[[group_var]][keep]
-  if (length(grp) == 0) {
-    return(0L)
-  }
-  as.integer(min(table(grp)))
+  grp <- as.character(metadata[[group_var]])
+  n1 <- sum(grp == as.character(group_1), na.rm = TRUE)
+  n2 <- sum(grp == as.character(group_2), na.rm = TRUE)
+  as.integer(min(n1, n2))
 }
 
 Go_ShouldUseNativeAdapter <- function(method, feature_table, metadata, group_var, group_1, group_2) {
@@ -1155,6 +1175,7 @@ Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback
   tryCatch(
     suppressWarnings(suppressMessages(native_fun())),
     error = function(e) {
+      message("[ConDA] WARNING: Native ", method_name, " failed — result excluded from consensus. Reason: ", conditionMessage(e))
       fallback_fun(
         note = paste0("Native ", method_name, " adapter failed: ", conditionMessage(e))
       )
