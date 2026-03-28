@@ -681,21 +681,41 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
         colData = method_input$metadata,
         design = method_input$design_formula
       )
-      if (control$size_factors_type == "poscounts") {
-        dds <- DESeq2::estimateSizeFactors(dds, type = "poscounts")
+      robust_result <- Go_RunDESeqRobust(dds, sf_type = control$size_factors_type)
+      dds <- robust_result$dds
+      sf_type_used <- robust_result$sf_type_used
+      contrast_vec <- c(prepared$temp_group_var, "cmp", "ref")
+      res <- DESeq2::results(dds, contrast = contrast_vec, alpha = alpha)
+
+      lfc_shrink_applied <- FALSE
+      if (isTRUE(control$lfc_shrink)) {
+        res <- tryCatch({
+          shrunk <- DESeq2::lfcShrink(
+            dds,
+            contrast = contrast_vec,
+            res = res,
+            type = control$lfc_shrink_type %||% "ashr",
+            quiet = TRUE
+          )
+          lfc_shrink_applied <- TRUE
+          shrunk
+        }, error = function(e) {
+          message("[ConDa-dist DESeq2] lfcShrink failed (", conditionMessage(e),
+                  "); using unshrunken LFC.")
+          res
+        })
       }
-      dds <- Go_RunDESeqRobust(dds)
-      res <- DESeq2::results(
-        dds,
-        contrast = c(prepared$temp_group_var, "cmp", "ref"),
-        alpha = alpha
-      )
+
       res_df <- as.data.frame(res)
       res_df$feature_id <- rownames(res_df)
 
+      shrink_note <- if (lfc_shrink_applied) paste0("; lfc_shrink=", control$lfc_shrink_type %||% "ashr") else "; lfc_shrink=none"
       out <- Go_CreateBaseDAResult(
         prepared, "deseq2", "log2FC",
-        Go_CombineNotes("Native DESeq2 adapter", Go_ControlNote(control))
+        Go_CombineNotes(
+          paste0("Native DESeq2 adapter; size_factor_type=", sf_type_used, shrink_note),
+          Go_ControlNote(control)
+        )
       )
       out <- Go_FillDAResult(
         base_result = out,

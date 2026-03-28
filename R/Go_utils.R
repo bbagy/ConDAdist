@@ -266,7 +266,9 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
       min_count = 0,
       zero_replace = FALSE,
       zero_replace_value = 1,
-      size_factors_type = "poscounts"
+      size_factors_type = "poscounts",
+      lfc_shrink = TRUE,
+      lfc_shrink_type = "ashr"
     ),
     list()
   )
@@ -426,6 +428,8 @@ Go_StandardSchema <- function(feature_ids) {
     prevalence_group1 = NA_real_,
     prevalence_group2 = NA_real_,
     n_samples = NA_integer_,
+    bas.count = NA_integer_,
+    smvar.count = NA_integer_,
     notes = NA_character_,
     stringsAsFactors = FALSE
   )
@@ -474,6 +478,8 @@ Go_CreateBaseDAResult <- function(prepared, method, effect_type, notes = NA_char
   out$prevalence_group1 <- rowMeans(ft[, g1, drop = FALSE] > 0, na.rm = TRUE)
   out$prevalence_group2 <- rowMeans(ft[, g2, drop = FALSE] > 0, na.rm = TRUE)
   out$n_samples <- ncol(ft)
+  out$bas.count <- as.integer(sum(g1))
+  out$smvar.count <- as.integer(sum(g2))
   out$notes <- notes
   out
 }
@@ -1323,19 +1329,44 @@ Go_GetCorncobCoef <- function(model_summary, temp_group_var = ".conda_group") {
   )
 }
 
-Go_RunDESeqRobust <- function(dds) {
-  tryCatch(
-    DESeq2::DESeq(dds, quiet = TRUE),
-    error = function(e) {
-      if (!grepl("dispersion estimates", conditionMessage(e), fixed = TRUE)) {
-        stop(e)
+Go_RunDESeqRobust <- function(dds, sf_type = "ratio") {
+  sf_chain <- unique(c(sf_type, "poscounts", "iterate"))
+  last_error <- NULL
+
+  .try_deseq <- function(dds_sf) {
+    tryCatch(
+      DESeq2::DESeq(dds_sf, quiet = TRUE),
+      error = function(e) {
+        if (!grepl("dispersion estimates", conditionMessage(e), fixed = TRUE)) {
+          return(e)
+        }
+        tryCatch({
+          dds2 <- DESeq2::estimateDispersionsGeneEst(dds_sf, quiet = TRUE)
+          DESeq2::dispersions(dds2) <- S4Vectors::mcols(dds2)$dispGeneEst
+          DESeq2::nbinomWaldTest(dds2, quiet = TRUE)
+        }, error = function(e2) e2)
       }
-      dds <- DESeq2::estimateSizeFactors(dds)
-      dds <- DESeq2::estimateDispersionsGeneEst(dds, quiet = TRUE)
-      DESeq2::dispersions(dds) <- S4Vectors::mcols(dds)$dispGeneEst
-      DESeq2::nbinomWaldTest(dds, quiet = TRUE)
+    )
+  }
+
+  for (sf in sf_chain) {
+    dds_sf <- tryCatch(
+      DESeq2::estimateSizeFactors(dds, type = sf),
+      error = function(e) e
+    )
+    if (inherits(dds_sf, "error")) {
+      last_error <- dds_sf
+      next
     }
-  )
+    result <- .try_deseq(dds_sf)
+    if (!inherits(result, "error")) {
+      return(list(dds = result, sf_type_used = sf))
+    }
+    last_error <- result
+  }
+
+  stop(if (!is.null(last_error)) conditionMessage(last_error)
+       else "DESeq2 failed with all size factor methods.")
 }
 
 Go_GroupSeparationScore <- function(dist_matrix, group_factor) {
