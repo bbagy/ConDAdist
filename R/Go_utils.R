@@ -1235,9 +1235,9 @@ Go_CheckDependencies <- function() {
 #'
 #' @examples
 #' \dontrun{
-#' Go_InstallDependencies()
+#' condadist_dependency()
 #' }
-Go_InstallDependencies <- function(ask = interactive()) {
+condadist_dependency <- function(ask = interactive()) {
   # ANCOMBC depends on CVXR which depends on clarabel (a Rust package).
   # clarabel must be compiled from source and requires the Rust toolchain.
   # Check for cargo (Rust package manager) before attempting installation.
@@ -1260,7 +1260,7 @@ Go_InstallDependencies <- function(ask = interactive()) {
         "Rust toolchain (cargo) was not found on this system.\n\n",
         "Install Rust by running this command in your Terminal:\n",
         "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n",
-        "After installation, restart R and run Go_InstallDependencies() again.\n",
+        "After installation, restart R and run condadist_dependency() again.\n",
         "If Rust is already installed, make sure 'cargo' is on your PATH."
       )
     }
@@ -1306,6 +1306,47 @@ Go_InstallDependencies <- function(ask = interactive()) {
   if (!requireNamespace("BiocManager", quietly = TRUE)) {
     message("[ConDA] Installing BiocManager first...")
     utils::install.packages("BiocManager", quiet = TRUE)
+  }
+
+  # terra is not a direct ConDA-dist dependency.
+  # It may be pulled in as a transitive dependency by BiocManager.
+  # If it is already loadable, skip it entirely to avoid triggering
+  # a source recompile that requires GDAL/OpenMP system libraries.
+  # If it is missing, warn the user rather than attempting to compile.
+  if (!requireNamespace("terra", quietly = TRUE)) {
+    message(
+      "[ConDA] Note: 'terra' is missing but is not a direct ConDA-dist dependency.\n",
+      "  If installation later fails due to terra, install system libraries first:\n",
+      "    brew install libomp\n",
+      "  Then set ~/.R/Makevars:\n",
+      "    LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp\n",
+      "    CPPFLAGS += -I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp\n",
+      "  Then retry: install.packages(\"terra\", repos = \"https://rspatial.r-universe.dev\")"
+    )
+  }
+
+  # CVXR 1.0-11 must be installed before ANCOMBC.
+  # Newer CVXR versions do not export 'solve', which causes ANCOMBC lazy-load failure.
+  needs_ancombc <- "ANCOMBC" %in% c(fresh_bioc, broken_bioc)
+  if (needs_ancombc) {
+    cvxr_ok <- tryCatch({
+      if (requireNamespace("CVXR", quietly = TRUE)) {
+        # check if solve is exported by the installed version
+        "solve" %in% getNamespaceExports("CVXR")
+      } else {
+        FALSE
+      }
+    }, error = function(e) FALSE)
+
+    if (!cvxr_ok) {
+      if (!requireNamespace("remotes", quietly = TRUE)) {
+        message("[ConDA] Installing remotes (needed for CVXR version pinning)...")
+        utils::install.packages("remotes", quiet = TRUE)
+      }
+      message("[ConDA] Installing CVXR 1.0-11 (required for ANCOMBC compatibility)...")
+      remotes::install_version("CVXR", version = "1.0-11", quiet = TRUE,
+                               repos = "https://cloud.r-project.org")
+    }
   }
 
   if (length(fresh_cran) > 0) {

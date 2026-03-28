@@ -80,7 +80,7 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
     stop(
       "[ConDA] Required package(s) not installed — analysis cannot proceed.\n",
       paste(lines, collapse = "\n"), "\n",
-      "Run Go_InstallDependencies() to install all ConDA-dist dependencies automatically."
+      "Run condadist_dependency() to install all ConDA-dist dependencies automatically."
     )
   }
 

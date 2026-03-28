@@ -51,13 +51,84 @@ Why distances matter:
 
 ## Installation
 
-This repository is currently structured like a development package.
+### 1. Install Rust (required for ANCOMBC)
+
+ANCOMBC depends on `CVXR`, which depends on `clarabel` — a package that must
+be compiled from Rust source. Without Rust, ANCOMBC installation will fail.
+
+Run this once in your **Terminal** (not in R):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+After the installer finishes, reload your shell environment:
+
+```bash
+source ~/.cargo/env
+```
+
+Then **restart R** so it picks up the updated PATH.
+
+If Rust is already installed but R cannot find `cargo`, add this to your
+`~/.Renviron` or run before installing:
+
+```r
+Sys.setenv(PATH = paste0(path.expand("~/.cargo/bin"), ":", Sys.getenv("PATH")))
+```
+
+### 2. Install libomp (required for terra, macOS only)
+
+Some Bioconductor packages pull in `terra` as a transitive dependency.
+`terra` requires OpenMP to compile on macOS, which is not included with
+Apple's default Xcode toolchain.
+
+Run this once in your **Terminal**:
+
+```bash
+brew install libomp
+```
+
+Then configure R to find it by adding these lines to `~/.R/Makevars`
+(create the file if it does not exist):
+
+```
+LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp
+CPPFLAGS += -I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp
+```
+
+You can do this from R:
+
+```r
+dir.create("~/.R", showWarnings = FALSE)
+write(c(
+  "LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp",
+  "CPPFLAGS += -I/opt/homebrew/opt/libomp/include -Xpreprocessor -fopenmp"
+), file = "~/.R/Makevars", append = TRUE)
+```
+
+Then **restart R**.
+
+### 3. Install R dependencies
+
+Load ConDA-dist, then run the dependency installer once:
+
+```r
+source("ConDA-dist/R/Go_utils.R")
+# ... source remaining files ...
+condadist_dependency()
+```
+
+This installs all required Bioconductor and CRAN packages automatically,
+including ANCOMBC, DESeq2, ALDEx2, Maaslin2, corncob, phyloseq, and vegan.
+
+### 3. Load ConDA-dist
 
 ```r
 devtools::load_all("/path/to/ConDA-dist")
 ```
 
-Or source files directly in an interactive workflow.
+Or source files directly:
 
 ```r
 source("ConDA-dist/R/Go_utils.R")
