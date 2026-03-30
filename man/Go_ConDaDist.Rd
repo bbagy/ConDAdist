@@ -7,14 +7,15 @@
 Go_ConDaDist(
   psIN,
   group_var,
-  group_1,
-  group_2,
+  group_1 = NULL,
+  group_2 = NULL,
+  orders = NULL,
   project,
   covariates = NULL,
   name = NULL,
   random_effects = NULL,
-  methods = Go_AllDAMethods(),
-  distances = Go_AllDistanceMetrics(),
+  methods = c("ancombc2", "aldex2", "maaslin2", "corncob", "deseq2"),
+  distances = c("bray", "jaccard", "aitchison"),
   method_controls = NULL,
   prevalence = 0.1,
   abundance = 1e-04,
@@ -23,7 +24,9 @@ Go_ConDaDist(
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
   qc_plot = TRUE,
-  continue_on_error = TRUE
+  pairwise_all = FALSE,
+  continue_on_error = TRUE,
+  filter_scope = "pairwise"
 )
 }
 \arguments{
@@ -32,9 +35,14 @@ Go_ConDaDist(
 \item{group_var}{Column in \code{sample_data(psIN)} that defines the comparison
 groups.}
 
-\item{group_1}{Baseline comparison group.}
+\item{group_1}{Baseline comparison group. Can be \code{NULL} when
+\code{pairwise_all = TRUE}.}
 
-\item{group_2}{One or more target groups compared against \code{group_1}.}
+\item{group_2}{One or more target groups compared against \code{group_1}. Can be
+\code{NULL} when \code{pairwise_all = TRUE}.}
+
+\item{orders}{Optional ordered levels for \code{group_var}. When
+\code{pairwise_all = TRUE}, all pairwise comparisons follow this order.}
 
 \item{project}{Project name used to create the dated output directory.}
 
@@ -46,13 +54,27 @@ groups.}
 native \code{MaAsLin2} single-mode runs and \code{ANCOMBC2} mixed-effects models.}
 
 \item{methods}{Differential abundance methods to run. Defaults to all
-supported methods: \code{ancombc2}, \code{aldex2}, \code{maaslin2}, \code{corncob}, and
-\code{deseq2}.}
+supported methods. Available options:
+\itemize{
+\item \code{"ancombc2"} — ANCOM-BC2 (log-linear, bias-corrected)
+\item \code{"aldex2"}   — ALDEx2 (t-test without covariates; GLM with covariates)
+\item \code{"maaslin2"} — MaAsLin2 (linear mixed model, TSS+LOG)
+\item \code{"corncob"}  — corncob (beta-binomial, handles overdispersion)
+\item \code{"deseq2"}   — DESeq2 (negative binomial, poscounts normalization)
+}}
 
-\item{distances}{Beta-diversity distances to compute. Defaults to the
-representative set \code{bray}, \code{jaccard}, and \code{aitchison}. At most 3 distances
+\item{distances}{Beta-diversity distances to compute. At most 3 distances
 are allowed per run. Set to \code{NULL} to disable beta-diversity and run
-DA-only mode.}
+DA-only mode. Available options:
+\itemize{
+\item \code{"bray"}             — Bray-Curtis dissimilarity (recommended default)
+\item \code{"jaccard"}          — Jaccard distance (presence/absence)
+\item \code{"aitchison"}        — Aitchison distance (CLR-transformed Euclidean)
+\item \code{"unifrac"}          — Unweighted UniFrac (requires phylogenetic tree)
+\item \code{"weighted_unifrac"} — Weighted UniFrac (requires phylogenetic tree)
+}
+Recommended without tree: \code{c("bray", "jaccard", "aitchison")}.
+Recommended with tree: \code{c("bray", "aitchison", "unifrac")}.}
 
 \item{method_controls}{Optional named list of per-method control lists.}
 
@@ -70,7 +92,11 @@ filtering.}
 
 \item{weights}{Named numeric vector controlling final score weights.}
 
-\item{qc_plot}{Generate QC plots automatically after analysis.}
+\item{qc_plot}{Generate QC plots automatically after analysis.
+Volcano bridge tables and Gotools volcano plots are generated automatically.}
+
+\item{pairwise_all}{If \code{TRUE}, ignore the baseline-vs-target pattern and run
+all pairwise comparisons across ordered \code{group_var} levels.}
 
 \item{continue_on_error}{Keep running remaining pairwise comparisons even if
 one comparison fails.}
@@ -93,6 +119,13 @@ It supports both:
 In single mode, the function tries to stay close to the older Go DA-family
 workflow. In consensus mode, it combines multiple DA methods and optional
 distance-based feature contribution scores into a final ranked table.
+
+Comparison modes:
+\itemize{
+\item \code{pairwise_all = FALSE}: run \code{group_1} against each value in \code{group_2}
+\item \code{pairwise_all = TRUE}: ignore \code{group_1} and \code{group_2}, and run all
+pairwise contrasts using \code{orders}
+}
 }
 \examples{
 \dontrun{
@@ -114,7 +147,7 @@ res_dir <- Go_ConDaDist(
   group_1 = "Control",
   group_2 = "GLP-2",
   project = "DemoProj",
-  methods = c("deseq2", "aldex2", "ancombc2"),
+  methods = c("ancombc2", "aldex2", "deseq2"),
   distances = c("bray", "jaccard", "aitchison")
 )
 
