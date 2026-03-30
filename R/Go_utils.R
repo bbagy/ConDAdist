@@ -1237,6 +1237,7 @@ Go_CheckDependencies <- function() {
 #' \dontrun{
 #' condadist_dependency()
 #' }
+#' @export
 condadist_dependency <- function(ask = interactive()) {
   # ANCOMBC depends on CVXR which depends on clarabel (a Rust package).
   # clarabel must be compiled from source and requires the Rust toolchain.
