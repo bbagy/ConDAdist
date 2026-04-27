@@ -33,11 +33,11 @@
 #' @param methods Differential abundance methods to run. Defaults to all
 #'   supported methods. Available options:
 #'   \itemize{
-#'     \item \code{"ancombc2"} — ANCOM-BC2 (log-linear, bias-corrected)
-#'     \item \code{"aldex2"}   — ALDEx2 (t-test without covariates; GLM with covariates)
-#'     \item \code{"maaslin2"} — MaAsLin2 (linear mixed model, TSS+LOG)
-#'     \item \code{"corncob"}  — corncob (beta-binomial, handles overdispersion)
-#'     \item \code{"deseq2"}   — DESeq2 (negative binomial, poscounts normalization)
+#'     \item \code{"deseq2"}       — DESeq2 (negative binomial, poscounts normalization)
+#'     \item \code{"aldex2"}       — ALDEx2
+#'     \item \code{"ancombc2"}     — ANCOM-BC2 (log-linear, bias-corrected)
+#'     \item \code{"corncob_lrt"}  — corncob likelihood-ratio test
+#'     \item \code{"corncob_wald"} — corncob Wald test (optional comparator)
 #'   }
 #' @param distances Beta-diversity distances to compute. At most 3 distances
 #'   are allowed per run. Set to \code{NULL} to disable beta-diversity and run
@@ -45,12 +45,12 @@
 #'   \itemize{
 #'     \item \code{"bray"}             — Bray-Curtis dissimilarity (recommended default)
 #'     \item \code{"jaccard"}          — Jaccard distance (presence/absence)
-#'     \item \code{"aitchison"}        — Aitchison distance (CLR-transformed Euclidean)
+#'     \item \code{"jsd"}              — Jensen-Shannon distance
 #'     \item \code{"unifrac"}          — Unweighted UniFrac (requires phylogenetic tree)
 #'     \item \code{"weighted_unifrac"} — Weighted UniFrac (requires phylogenetic tree)
 #'   }
-#'   Recommended without tree: \code{c("bray", "jaccard", "aitchison")}.
-#'   Recommended with tree: \code{c("bray", "aitchison", "unifrac")}.
+#'   Recommended without tree: \code{c("bray", "jaccard", "jsd")}.
+#'   Recommended with tree: \code{c("bray", "jsd", "unifrac")}.
 #' @param method_controls Optional named list of per-method control lists.
 #' @param prevalence Minimum fraction of samples with non-zero abundance used in
 #'   feature filtering.
@@ -60,6 +60,10 @@
 #' @param n_permutations Number of PERMANOVA permutations.
 #' @param n_beta_permutations Number of feature-level beta permutations.
 #' @param weights Named numeric vector controlling final score weights.
+#' @param p_combine DA p-value combination rule used in the consensus layer.
+#'   One of \code{"adaptive_cauchy"} (default) or \code{"fisher"}.
+#'   \code{"cauchy"} is accepted for backward compatibility but is deprecated
+#'   and mapped to \code{"adaptive_cauchy"}.
 #' @param qc_plot Generate QC plots automatically after analysis.
 #' Volcano bridge tables and Gotools volcano plots are generated automatically.
 #' @param pairwise_all If `TRUE`, ignore the baseline-vs-target pattern and run
@@ -92,7 +96,7 @@
 #'   group_2 = "GLP-2",
 #'   project = "DemoProj",
 #'   methods = c("ancombc2", "aldex2", "deseq2"),
-#'   distances = c("bray", "jaccard", "aitchison")
+#'   distances = c("bray", "jaccard", "jsd")
 #' )
 #'
 #' # native MaAsLin2 single-mode run
@@ -117,12 +121,12 @@ Go_ConDaDist <- function(
   covariates = NULL,
   name = NULL,
   random_effects = NULL,
-  # DA methods: "ancombc2", "aldex2", "maaslin2", "corncob", "deseq2"
-  methods = c("ancombc2", "aldex2", "maaslin2", "corncob", "deseq2"),
-  # distances: "bray", "jaccard", "aitchison", "unifrac", "weighted_unifrac"
+  # DA methods: "deseq2", "aldex2", "ancombc2", "corncob_lrt"
+  methods = c("deseq2", "aldex2", "ancombc2", "corncob_lrt"),
+  # distances: "bray", "jaccard", "jsd", "unifrac", "weighted_unifrac"
   # unifrac / weighted_unifrac require a phylogenetic tree in psIN
   # set NULL to run DA-only (no beta-diversity)
-  distances = c("bray", "jaccard", "aitchison"),
+  distances = c("bray", "jaccard", "jsd"),
   method_controls = NULL,
   prevalence = 0.1,
   abundance = 1e-4,
@@ -130,11 +134,13 @@ Go_ConDaDist <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
   filter_scope = "pairwise"
 ) {
+  p_combine <- Go_ResolvePCombine(p_combine)
   result <- Go_RunConDaDistMain(
     feature_table = psIN,
     metadata = NULL,
@@ -155,16 +161,14 @@ Go_ConDaDist <- function(
     n_permutations = n_permutations,
     n_beta_permutations = n_beta_permutations,
     weights = weights,
+    p_combine = p_combine,
     qc_plot = qc_plot,
     pairwise_all = pairwise_all,
     continue_on_error = continue_on_error,
     filter_scope = filter_scope
   )
   root_dir <- if (is.list(result) && !is.null(result$return_dir)) result$return_dir else result
-  resolved_methods <- Go_ResolveMethods(methods)
-  is_single <- length(resolved_methods) == 1 && (is.null(distances) || length(distances) == 0)
-  subdir <- if (is_single) "ConDaDist_plot_single_Tab" else "ConDaDist_plot_Tab"
-  invisible(file.path(root_dir, "table", subdir))
+  invisible(root_dir)
 }
 
 Go_RunConDaDistMain <- function(
@@ -187,11 +191,13 @@ Go_RunConDaDistMain <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
   filter_scope = "pairwise"
 ) {
+  p_combine <- Go_ResolvePCombine(p_combine)
   if (is.null(project) || !nzchar(project)) {
     stop("`project` must be provided.")
   }
@@ -266,6 +272,7 @@ Go_RunConDaDistMain <- function(
         n_permutations = n_permutations,
         n_beta_permutations = n_beta_permutations,
         weights = weights,
+        p_combine = p_combine,
         qc_plot = qc_plot,
         volcano_bridge_root_dir = output_layout$conda_dist_volcano,
         single_volcano_bridge_root_dir = output_layout$conda_dist_single_volcano,
@@ -368,6 +375,7 @@ Go_RunSingleDAensemble <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
   qc_plot = TRUE,
   volcano_bridge_root_dir = NULL,
   single_volcano_bridge_root_dir = NULL,
@@ -375,6 +383,7 @@ Go_RunSingleDAensemble <- function(
   file_prefix = NULL,
   filter_scope = "pairwise"
 ) {
+  p_combine <- Go_ResolvePCombine(p_combine)
   input_bundle <- Go_NormalizeInputBundle(
     feature_table = feature_table,
     metadata = metadata
@@ -424,6 +433,7 @@ Go_RunSingleDAensemble <- function(
         n_permutations = n_permutations,
         n_beta_permutations = n_beta_permutations,
         weights = weights,
+        p_combine = p_combine,
         output_dir = output_dir,
         file_prefix = file_prefix,
         filter_scope = filter_scope
@@ -499,6 +509,8 @@ Go_RunSingleDAensemble <- function(
   if (isTRUE(qc_plot)) {
     qc_dir <- Go_CreateQCPlotDir(dirname(output_dir), group_1, group_2)
     message("[ConDA] Generating QC plots.")
+    result$file_prefix  <- file_prefix
+    result$input_bundle <- input_bundle
     qc_out <- tryCatch(
       Go_ConDaQCplot(
         result = result,
@@ -585,10 +597,15 @@ Go_RunSingleDAAttempt <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
   output_dir,
   file_prefix = NULL,
   filter_scope = "pairwise"
 ) {
+  p_combine <- Go_ResolvePCombine(p_combine)
+  v4_mode <- Go_ResolveV4Mode(p_combine)
+  consensus_skeleton <- v4_mode$consensus_skeleton
+  beta_contribution <- v4_mode$beta_contribution
   message("[ConDA] Aligning samples and filtering features.")
   aligned <- Go_AlignInputs(
     feature_table = input_bundle$feature_table,
@@ -614,10 +631,11 @@ Go_RunSingleDAAttempt <- function(
   if (isTRUE(single_method_mode)) {
     message("[ConDA] Single-method mode: filter_scope = \"", filter_scope, "\" (",
             nrow(filtered$feature_table), " features retained).")
-    if (length(methods) == 1 && identical(methods, "corncob")) {
+    if (length(methods) == 1 && methods[[1]] %in% c("corncob", "corncob_wald", "corncob_lrt")) {
+      corncob_key <- if (identical(methods[[1]], "corncob")) "corncob_wald" else methods[[1]]
       method_controls <- method_controls %||% list()
-      method_controls$corncob <- utils::modifyList(
-        method_controls$corncob %||% list(),
+      method_controls[[corncob_key]] <- utils::modifyList(
+        method_controls[[corncob_key]] %||% list(),
         list(
           min_prevalence = 0.05,
           min_total_count = 10,
@@ -630,7 +648,7 @@ Go_RunSingleDAAttempt <- function(
           retry_phi_null_formula = "~ 1"
         )
       )
-      message("[ConDA] Single corncob mode: applying stability-focused filtering and retry settings.")
+      message("[ConDA] Single ", corncob_key, " mode: applying stability-focused filtering and retry settings.")
     }
   }
 
@@ -676,8 +694,8 @@ Go_RunSingleDAAttempt <- function(
       n_permutations = n_permutations
     )
 
-    message("[ConDA] Estimating beta contribution.")
-    beta_contribution <- Go_BetaContribution(
+    message("[ConDA] Estimating beta contribution (method = ", beta_contribution, ").")
+    beta_contribution_tbl <- Go_BetaContribution(
       feature_table = filtered$feature_table,
       metadata = filtered$metadata,
       group_var = group_var,
@@ -685,17 +703,19 @@ Go_RunSingleDAAttempt <- function(
       group_2 = group_2,
       beta_distances = beta_distances,
       phy_tree = input_bundle$phy_tree,
-      n_beta_permutations = n_beta_permutations
+      n_beta_permutations = n_beta_permutations,
+      method = beta_contribution
     )
   } else {
     beta_distances <- Go_CreateEmptyBetaDistance()
-    beta_contribution <- Go_CreateEmptyBetaContribution(rownames(filtered$feature_table))
+    beta_contribution_tbl <- Go_CreateEmptyBetaContribution(rownames(filtered$feature_table))
   }
 
-  message("[ConDA] Building consensus tables.")
+  message("[ConDA] Building consensus tables (p_combine = ", p_combine, ").")
   da_consensus <- Go_DAConsensus(
     da_table = da_standardized$all_methods_standardized,
-    alpha = alpha
+    alpha = alpha,
+    p_combine = p_combine
   )
   method_annotation <- Go_BuildMethodAnnotation(
     da_table = da_standardized$all_methods_standardized
@@ -703,7 +723,7 @@ Go_RunSingleDAAttempt <- function(
 
   final_scores <- Go_FinalScore(
     da_consensus = da_consensus,
-    beta_contribution = beta_contribution,
+    beta_contribution = beta_contribution_tbl,
     method_annotation = method_annotation,
     beta_enabled = beta_enabled,
     weights = weights
@@ -717,7 +737,7 @@ Go_RunSingleDAAttempt <- function(
     standardized_da = da_standardized$all_methods_standardized,
     da_consensus = da_consensus,
     beta_summary = beta_distances$beta_summary,
-    beta_feature_contribution = beta_contribution,
+    beta_feature_contribution = beta_contribution_tbl,
     final_scores = final_scores,
     file_prefix = file_prefix
   )
@@ -729,7 +749,7 @@ Go_RunSingleDAAttempt <- function(
     da_raw = da_raw,
     da_standardized = da_standardized,
     beta_distances = beta_distances,
-    beta_contribution = beta_contribution,
+    beta_contribution = beta_contribution_tbl,
     da_consensus = da_consensus,
     method_annotation = method_annotation,
     final_scores = final_scores,

@@ -214,6 +214,7 @@ Go_PrepareDAInputs <- function(feature_table, metadata, group_var, group_1, grou
 
 Go_GetDAMethodControls <- function(method, control = NULL) {
   method <- if (identical(method, "maaslin")) "maaslin2" else method
+  method <- if (identical(method, "corncob")) "corncob_wald" else method
   defaults <- switch(
     method,
     ancombc2 = list(
@@ -247,9 +248,26 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
       max_significance = 1,
       standardize = FALSE
     ),
-    corncob = list(
+    corncob_wald = list(
       phi_formula = "auto",
       phi_null_formula = "auto",
+      test_type = "Wald",
+      boot = FALSE,
+      fdr_cutoff = 1,
+      filter_discriminant = TRUE,
+      min_prevalence = 0.05,
+      min_total_count = 10,
+      legacy_filter_cutoff = 0,
+      retry_min_prevalence = 0.1,
+      retry_min_total_count = 20,
+      retry_legacy_filter_cutoff = 0.001,
+      retry_phi_formula = "~ 1",
+      retry_phi_null_formula = "~ 1"
+    ),
+    corncob_lrt = list(
+      phi_formula = "auto",
+      phi_null_formula = "auto",
+      test_type = "LRT",
       boot = FALSE,
       fdr_cutoff = 1,
       filter_discriminant = TRUE,
@@ -277,6 +295,34 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
 
 `%||%` <- function(x, y) {
   if (is.null(x)) y else x
+}
+
+Go_ResolvePCombine <- function(p_combine) {
+  # V4 is a single version, but we keep "cauchy" as a deprecated alias to avoid
+  # breaking older scripts that still pass p_combine = "cauchy".
+  p <- match.arg(
+    arg = p_combine,
+    choices = c("adaptive_cauchy", "fisher", "cauchy")
+  )
+  if (identical(p, "cauchy")) {
+    warning("p_combine = \"cauchy\" is deprecated; using \"adaptive_cauchy\" instead.")
+    p <- "adaptive_cauchy"
+  }
+  p
+}
+
+Go_ResolveV4Mode <- function(p_combine) {
+  p <- Go_ResolvePCombine(p_combine)
+  if (identical(p, "fisher")) {
+    return(list(
+      consensus_skeleton = "v1",
+      beta_contribution = "simper_loo"
+    ))
+  }
+  list(
+    consensus_skeleton = "v2",
+    beta_contribution = "loo_only"
+  )
 }
 
 Go_PrepareMethodInput <- function(prepared, method, control = list()) {
@@ -318,7 +364,7 @@ Go_PrepareMethodInput <- function(prepared, method, control = list()) {
     out$sample_feature_data <- as.data.frame(t(ft))
   }
 
-  if (method == "corncob") {
+  if (method %in% c("corncob", "corncob_wald", "corncob_lrt")) {
     out$full_formula <- stats::as.formula(paste("~", out$full_formula_terms))
     out$null_formula <- stats::as.formula(paste("~", Go_BuildFormulaTerms(prepared, include_group = FALSE)))
     out$phi_formula <- if (identical(control$phi_formula, "auto")) {
@@ -521,6 +567,8 @@ Go_ShouldUseNativeAdapter <- function(method, feature_table, metadata, group_var
     method,
     ancombc2 = list(min_group_n = 3L, min_features = 10L),
     corncob = list(min_group_n = 3L, min_features = 10L),
+    corncob_wald = list(min_group_n = 3L, min_features = 10L),
+    corncob_lrt = list(min_group_n = 3L, min_features = 10L),
     deseq2 = list(min_group_n = 3L, min_features = 5L),
     maaslin2 = list(min_group_n = 2L, min_features = 2L),
     aldex2 = list(min_group_n = 2L, min_features = 2L),
@@ -717,7 +765,9 @@ Go_NormalizeDistanceName <- function(x) {
     unweightedunifrac = "unweighted_unifrac",
     bray = "bray",
     jaccard = "jaccard",
-    aitchison = "aitchison"
+    jsd = "jsd",
+    jensen_shannon = "jsd",
+    jensenshannon = "jsd"
   )
   if (key %in% names(aliases)) {
     return(unname(aliases[[key]]))
@@ -726,11 +776,11 @@ Go_NormalizeDistanceName <- function(x) {
 }
 
 Go_AllDAMethods <- function() {
-  c("ancombc2", "aldex2", "maaslin2", "corncob", "deseq2")
+  c("deseq2", "aldex2", "ancombc2", "corncob_lrt")
 }
 
 Go_AllDistanceMetrics <- function() {
-  c("bray", "jaccard", "aitchison")
+  c("bray", "jaccard", "jsd")
 }
 
 Go_ResolveMethods <- function(methods) {
@@ -739,6 +789,7 @@ Go_ResolveMethods <- function(methods) {
   }
   methods <- unique(tolower(as.character(methods)))
   methods[methods == "maaslin"] <- "maaslin2"
+  methods[methods == "corncob"] <- "corncob_lrt"
   methods
 }
 
@@ -748,6 +799,17 @@ Go_ResolveDistances <- function(distances, phy_tree = NULL) {
   }
 
   out <- unique(vapply(distances, Go_NormalizeDistanceName, character(1)))
+  supported <- c(Go_AllDistanceMetrics(), "unweighted_unifrac", "weighted_unifrac")
+  unsupported <- setdiff(out, supported)
+  if (length(unsupported) > 0) {
+    stop(
+      "Unsupported distance(s) for *_JSD line: ",
+      paste(unsupported, collapse = ", "),
+      ". Allowed distances are: ",
+      paste(supported, collapse = ", "),
+      "."
+    )
+  }
   phylo_metrics <- c("unweighted_unifrac", "weighted_unifrac")
   requested_phylo <- intersect(out, phylo_metrics)
 
@@ -757,7 +819,7 @@ Go_ResolveDistances <- function(distances, phy_tree = NULL) {
       message(
         "No phylogenetic tree was found in psIN, so UniFrac distances were skipped: ",
         paste(requested_phylo, collapse = ", "),
-        ". Recommended distances without a tree: bray, jaccard, aitchison."
+        ". Recommended distances without a tree: bray, jaccard, jsd."
       )
     }
   }
@@ -769,58 +831,14 @@ Go_ResolveDistances <- function(distances, phy_tree = NULL) {
     message(
       "ConDA-dist currently allows at most 3 distances per run. ",
       "Please reduce `distances` to 3 or fewer representative metrics. ",
-      "Recommended sets: c('bray','jaccard','aitchison') without a tree, ",
-      "or c('bray','aitchison','unifrac') with a tree."
+      "Recommended sets: c('bray','jaccard','jsd') without a tree, ",
+      "or c('bray','jsd','unifrac') with a tree."
     )
     stop("Too many distances were requested: ", paste(out, collapse = ", "))
   }
   out
 }
 
-Go_ComputeSIMPERContribution <- function(feature_table, group_factor) {
-  feature_table <- Go_AsMatrix(feature_table)
-  out <- stats::setNames(rep(NA_real_, nrow(feature_table)), rownames(feature_table))
-  if (length(unique(group_factor)) < 2) {
-    return(out)
-  }
-  if (!requireNamespace("vegan", quietly = TRUE)) {
-    approx_score <- rowMeans(feature_table, na.rm = TRUE)
-    names(approx_score) <- rownames(feature_table)
-    return(approx_score)
-  }
-
-  simper_fit <- tryCatch(
-    vegan::simper(t(feature_table), group_factor, permutations = 0),
-    error = function(e) NULL
-  )
-  if (is.null(simper_fit) || length(simper_fit) == 0) {
-    return(out)
-  }
-
-  pair_means <- lapply(simper_fit, function(x) {
-    if (!is.null(x$average)) {
-      return(x$average)
-    }
-    if (!is.null(x$overall)) {
-      return(x$overall)
-    }
-    NULL
-  })
-  pair_means <- pair_means[!vapply(pair_means, is.null, logical(1))]
-  if (length(pair_means) == 0) {
-    return(out)
-  }
-
-  taxa_union <- unique(unlist(lapply(pair_means, names)))
-  mat <- matrix(NA_real_, nrow = length(taxa_union), ncol = length(pair_means),
-    dimnames = list(taxa_union, NULL)
-  )
-  for (i in seq_along(pair_means)) {
-    mat[names(pair_means[[i]]), i] <- pair_means[[i]]
-  }
-  out[rownames(mat)] <- rowMeans(mat, na.rm = TRUE)
-  out
-}
 
 Go_CombinePValuesFisher <- function(p_values) {
   p_values <- p_values[is.finite(p_values) & !is.na(p_values)]
@@ -847,15 +865,13 @@ Go_CreateEmptyBetaDistance <- function() {
 
 Go_CreateEmptyBetaContribution <- function(feature_ids) {
   data.frame(
-    feature_id = feature_ids,
-    simper_contribution = NA_real_,
-    simper_score = NA_real_,
-    delta_R2 = NA_real_,
-    delta_R2_score = NA_real_,
+    feature_id              = feature_ids,
+    loo_separation_delta    = NA_real_,
+    loo_separation_score    = NA_real_,
     beta_contribution_score = NA_real_,
-    beta_perm_p = NA_real_,
-    beta_perm_q = NA_real_,
-    stringsAsFactors = FALSE
+    beta_perm_p             = NA_real_,
+    beta_perm_q             = NA_real_,
+    stringsAsFactors        = FALSE
   )
 }
 
@@ -877,12 +893,13 @@ Go_ComparisonLabel <- function(group_1, group_2) {
 Go_MethodSignature <- function(methods) {
   methods <- unique(tolower(as.character(methods)))
   methods[methods == "maaslin"] <- "maaslin2"
-  ordered_methods <- c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob")
+  methods[methods == "corncob"] <- "corncob_lrt"
+  ordered_methods <- c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
   methods <- ordered_methods[ordered_methods %in% methods]
   if (length(methods) <= 1) {
     return(methods[1] %||% "condadist")
   }
-  map <- c(deseq2 = "D", aldex2 = "A", ancombc2 = "N", maaslin2 = "M", corncob = "C")
+  map <- c(deseq2 = "D", aldex2 = "A", ancombc2 = "N", corncob_wald = "W", corncob_lrt = "L")
   paste0(unname(map[methods]), collapse = "")
 }
 
@@ -1187,6 +1204,7 @@ Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback
 }
 
 #' List all ConDA-dist dependencies with their install source
+#' @export
 Go_DependencyList <- function() {
   list(
     # Bioconductor
@@ -1216,6 +1234,7 @@ Go_DependencyList <- function() {
 #' Check which ConDA-dist dependencies are missing
 #'
 #' Returns a named list with $bioc and $cran vectors of missing package names.
+#' @export
 Go_CheckDependencies <- function() {
   deps <- Go_DependencyList()
   list(
@@ -1431,7 +1450,8 @@ Go_GetRetryPlan <- function(prevalence, abundance, method_controls = NULL) {
     ancombc2 = list(struc_zero = FALSE, pseudo = 1, pseudo_sens = FALSE),
     aldex2 = list(zero_replace = TRUE, zero_replace_value = 0.5, mc_samples = 128L),
     maaslin2 = list(normalization = "TSS", transform = "LOG", min_prevalence = 0.05),
-    corncob = list(phi_formula = "~ 1", phi_null_formula = "~ 1", filter_discriminant = TRUE, boot = FALSE),
+    corncob_wald = list(phi_formula = "~ 1", phi_null_formula = "~ 1", test_type = "Wald", filter_discriminant = TRUE, boot = FALSE),
+    corncob_lrt = list(phi_formula = "~ 1", phi_null_formula = "~ 1", test_type = "LRT", filter_discriminant = TRUE, boot = FALSE),
     deseq2 = list(size_factors_type = "poscounts", min_count = 1)
   )
 
@@ -1614,6 +1634,51 @@ Go_CompositionalFallbackDist <- function(feature_table) {
   stats::dist(clr, method = "euclidean")
 }
 
+Go_ComputeSIMPERContribution <- function(feature_table, group_factor) {
+  feature_table <- Go_AsMatrix(feature_table)
+  out <- stats::setNames(rep(NA_real_, nrow(feature_table)), rownames(feature_table))
+  if (length(unique(group_factor)) < 2) {
+    return(out)
+  }
+  if (!requireNamespace("vegan", quietly = TRUE)) {
+    approx_score <- rowMeans(feature_table, na.rm = TRUE)
+    names(approx_score) <- rownames(feature_table)
+    return(approx_score)
+  }
+
+  simper_fit <- tryCatch(
+    vegan::simper(t(feature_table), group_factor, permutations = 0),
+    error = function(e) NULL
+  )
+  if (is.null(simper_fit) || length(simper_fit) == 0) {
+    return(out)
+  }
+
+  pair_means <- lapply(simper_fit, function(x) {
+    if (!is.null(x$average)) {
+      return(x$average)
+    }
+    if (!is.null(x$overall)) {
+      return(x$overall)
+    }
+    NULL
+  })
+  pair_means <- pair_means[!vapply(pair_means, is.null, logical(1))]
+  if (length(pair_means) == 0) {
+    return(out)
+  }
+
+  taxa_union <- unique(unlist(lapply(pair_means, names)))
+  mat <- matrix(NA_real_, nrow = length(taxa_union), ncol = length(pair_means),
+    dimnames = list(taxa_union, NULL)
+  )
+  for (i in seq_along(pair_means)) {
+    mat[names(pair_means[[i]]), i] <- pair_means[[i]]
+  }
+  out[rownames(mat)] <- rowMeans(mat, na.rm = TRUE)
+  out
+}
+
 Go_LeaveOneTaxonOutScore <- function(feature_table, target_feature, group_factor,
                                      distances, full_scores, phy_tree = NULL) {
   if (length(distances) == 0) {
@@ -1635,7 +1700,7 @@ Go_LeaveOneTaxonOutScore <- function(feature_table, target_feature, group_factor
       metric,
       bray               = Go_Dist_bray(reduced_table, phy_tree = phy_tree),
       jaccard            = Go_Dist_jaccard(reduced_table, phy_tree = phy_tree),
-      aitchison          = Go_Dist_aitchison(reduced_table, phy_tree = phy_tree),
+      jsd                = Go_Dist_jsd(reduced_table, phy_tree = phy_tree),
       unweighted_unifrac = Go_Dist_unweighted_unifrac(reduced_table, phy_tree = phy_tree),
       weighted_unifrac   = Go_Dist_weighted_unifrac(reduced_table, phy_tree = phy_tree),
       NULL
@@ -1685,4 +1750,94 @@ Go_EffectConsistency <- function(effect_vec) {
   sign_consistency <- max(mean(effect_vec >= 0), mean(effect_vec <= 0))
   variability <- stats::sd(abs(effect_vec), na.rm = TRUE)
   sign_consistency * (1 / (1 + variability))
+}
+
+# ------------------------------------------------------------------------------
+# Go_WeightSensitivity  (V2)
+#   Assess rank stability of final_score across a grid of weight perturbations.
+#   Returns a data.frame with one row per feature:
+#     feature_id, mean_rank, sd_rank, rank_stability (1 - sd/max_sd)
+# ------------------------------------------------------------------------------
+#' Weight sensitivity analysis for ranking stability
+#'
+#' Perturbs the da/beta/direction/effect weights on a grid and reports how
+#' consistently each feature is ranked across all weight combinations.
+#'
+#' @param da_consensus  Output of \code{Go_DAConsensus()}.
+#' @param beta_contribution Output of \code{Go_BetaContribution()}.
+#' @param n_grid Number of grid steps per weight dimension (default 5).
+#' @param beta_enabled Logical; whether beta component is active (default TRUE).
+#' @return A data.frame ordered by mean_rank with columns:
+#'   feature_id, mean_rank, sd_rank, rank_stability.
+#' @export
+Go_WeightSensitivity <- function(da_consensus, beta_contribution,
+                                 n_grid = 5L,
+                                 beta_enabled = TRUE) {
+  stopifnot(is.data.frame(da_consensus), is.data.frame(beta_contribution))
+
+  # Generate a simplex grid over the four weight dimensions
+  grid_vals <- seq(0, 1, length.out = n_grid)
+  weight_grid <- expand.grid(
+    da        = grid_vals,
+    beta      = grid_vals,
+    direction = grid_vals,
+    effect    = grid_vals
+  )
+  # Keep only rows that sum > 0
+  row_sums <- rowSums(weight_grid)
+  weight_grid <- weight_grid[row_sums > 0, , drop = FALSE]
+  # Normalise each row to sum 1
+  weight_grid <- weight_grid / row_sums[row_sums > 0]
+
+  if (!beta_enabled) {
+    weight_grid$beta <- 0
+    rs <- rowSums(weight_grid[, c("da", "direction", "effect")])
+    zero_rows <- rs == 0
+    weight_grid <- weight_grid[!zero_rows, , drop = FALSE]
+    rs <- rs[!zero_rows]
+    weight_grid[, c("da", "direction", "effect")] <-
+      weight_grid[, c("da", "direction", "effect")] / rs
+  }
+
+  n_combos   <- nrow(weight_grid)
+  feature_ids <- da_consensus$feature_id
+
+  rank_mat <- matrix(NA_real_, nrow = length(feature_ids), ncol = n_combos,
+                     dimnames = list(feature_ids, NULL))
+
+  for (i in seq_len(n_combos)) {
+    w <- as.numeric(weight_grid[i, ])
+    names(w) <- c("da", "beta", "direction", "effect")
+    # Go_FinalScore() returns rows sorted by -final_score, so we must align
+    # by matching feature_id from the OUTPUT, not from da_consensus input.
+    fs_out <- tryCatch(
+      Go_FinalScore(
+        da_consensus      = da_consensus,
+        beta_contribution = beta_contribution,
+        beta_enabled      = beta_enabled,
+        weights           = w
+      ),
+      error = function(e) NULL
+    )
+    if (is.null(fs_out)) {
+      scores <- rep(NA_real_, length(feature_ids))
+    } else {
+      scores <- fs_out$final_score[match(feature_ids, fs_out$feature_id)]
+    }
+    rank_mat[, i] <- rank(-scores, ties.method = "average", na.last = "keep")
+  }
+
+  mean_rank <- rowMeans(rank_mat, na.rm = TRUE)
+  sd_rank   <- apply(rank_mat, 1, stats::sd, na.rm = TRUE)
+  max_sd    <- max(sd_rank, na.rm = TRUE)
+  rank_stability <- if (max_sd > 0) 1 - sd_rank / max_sd else rep(1, length(feature_ids))
+
+  out <- data.frame(
+    feature_id      = feature_ids,
+    mean_rank       = mean_rank,
+    sd_rank         = sd_rank,
+    rank_stability  = rank_stability,
+    stringsAsFactors = FALSE
+  )
+  out[order(out$mean_rank), , drop = FALSE]
 }

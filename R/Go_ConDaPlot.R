@@ -25,7 +25,7 @@ Go_ConDaQCplot <- function(result,
   dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
   volcano_x_col <- if (x_method == "median" || !paste0(x_method, "_effect_size") %in% colnames(final_scores)) {
-    "median_effect_size"
+    "combined_effect_rank"
   } else {
     paste0(x_method, "_effect_size")
   }
@@ -34,7 +34,10 @@ Go_ConDaQCplot <- function(result,
   # feature_id를 breaks, plot_label을 display용 named vector로 유지
   # plot_label_unique는 volcano/scatter용 텍스트 라벨에만 사용
   final_scores$plot_label_unique <- Go_MakeUniqueLabels(final_scores$plot_label, final_scores$feature_id)
-  final_scores$consensus_y <- -log10(pmax(final_scores$fisher_combined_q, 1e-300))
+  q_col <- if ("combined_q" %in% colnames(final_scores)) "combined_q" else "cauchy_combined_q"
+  p_col <- if ("combined_p" %in% colnames(final_scores)) "combined_p" else "cauchy_combined_p"
+  final_scores$consensus_y <- -log10(pmax(final_scores[[q_col]], 1e-300))
+  consensus_subtitle <- Go_BuildConsensusSupportSubtitle(final_scores, q_col = q_col)
   # High-contrast, colorblind-friendly palette for QC readability.
   class_cols <- c(
     Core_consensus = "#0072B2",
@@ -76,7 +79,7 @@ Go_ConDaQCplot <- function(result,
       text = paste0(
         "Taxon: ", plot_label,
         "<br>Class: ", classification,
-        "<br>Combined q: ", signif(fisher_combined_q, 3),
+        "<br>Combined q: ", signif(.data[[q_col]], 3),
         "<br>Effect: ", signif(.data[[volcano_x_col]], 3),
         "<br>Beta contribution: ", signif(beta_contribution_score, 3)
       )
@@ -84,11 +87,12 @@ Go_ConDaQCplot <- function(result,
   ) +
     ggplot2::geom_point(alpha = 0.8) +
     ggplot2::scale_color_manual(values = class_cols, labels = class_labels, drop = FALSE) +
+    ggplot2::scale_size_continuous(range = c(1.5, 4)) +
     ggplot2::labs(
       title = "ConDAdist",
-      subtitle = "Consensus Volcano",
+      subtitle = paste("Consensus Volcano", consensus_subtitle, sep = " | "),
       x = volcano_x_col,
-      y = "-log10(Fisher combined q)",
+      y = "-log10(Combined q)",
       color = "Consensus class",
       size = "Beta contribution",
       caption = paste(
@@ -101,15 +105,15 @@ Go_ConDaQCplot <- function(result,
   p_scatter <- ggplot2::ggplot(
     final_scores,
     ggplot2::aes(
-      x = fisher_da_score,
+      x = cauchy_da_score,
       y = beta_contribution_score,
       color = classification,
       text = paste0(
         "Taxon: ", plot_label,
         "<br>Class: ", classification,
-        "<br>Combined DA evidence: ", signif(fisher_da_score, 3),
+        "<br>Combined DA evidence: ", signif(cauchy_da_score, 3),
         "<br>Community structure contribution: ", signif(beta_contribution_score, 3),
-        "<br>Combined q: ", signif(fisher_combined_q, 3)
+        "<br>Combined q: ", signif(.data[[q_col]], 3)
       )
     )
   ) +
@@ -177,7 +181,7 @@ Go_ConDaQCplot <- function(result,
         "Taxon: ", plot_label,
         "<br>Class: ", classification,
         "<br>Priority score: ", signif(priority_score, 3),
-        "<br>Combined q: ", signif(fisher_combined_q, 3),
+        "<br>Combined q: ", signif(.data[[q_col]], 3),
         "<br>Beta contribution: ", signif(beta_contribution_score, 3)
       )
     )
@@ -188,7 +192,7 @@ Go_ConDaQCplot <- function(result,
     ggplot2::scale_x_discrete(labels = top_label_map) +
     ggplot2::labs(
       title = "ConDAdist",
-      subtitle = paste("Top", top_n, "Consensus Taxa"),
+      subtitle = paste(paste("Top", top_n, "Consensus Taxa"), consensus_subtitle, sep = " | "),
       x = NULL,
       y = "Priority score",
       fill = "Consensus class",
@@ -244,6 +248,38 @@ Go_ConDaQCplot <- function(result,
     files = file_paths,
     html_files = html_files
   ))
+}
+
+Go_BuildConsensusSupportSubtitle <- function(final_scores, q_col) {
+  if (is.null(final_scores) || nrow(final_scores) == 0) {
+    return("no features")
+  }
+
+  q_vals <- suppressWarnings(as.numeric(final_scores[[q_col]]))
+  sig <- is.finite(q_vals) & !is.na(q_vals) & q_vals < 0.05
+  core_n <- if ("classification" %in% colnames(final_scores)) {
+    sum(final_scores$classification %in% "Core_consensus", na.rm = TRUE)
+  } else {
+    NA_integer_
+  }
+  med_methods <- if ("n_methods_significant" %in% colnames(final_scores) && any(sig)) {
+    stats::median(final_scores$n_methods_significant[sig], na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+  med_informative <- if ("n_informative_p" %in% colnames(final_scores) && any(sig)) {
+    stats::median(final_scores$n_informative_p[sig], na.rm = TRUE)
+  } else {
+    NA_real_
+  }
+
+  parts <- c(
+    sprintf("sig=%d/%d", sum(sig, na.rm = TRUE), nrow(final_scores)),
+    if (is.finite(core_n)) sprintf("core=%d", core_n) else NULL,
+    if (is.finite(med_methods)) sprintf("median method support=%.1f", med_methods) else NULL,
+    if (is.finite(med_informative)) sprintf("median informative p=%.1f", med_informative) else NULL
+  )
+  paste(parts, collapse = " | ")
 }
 
 Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600) {
@@ -373,15 +409,19 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
 }
 
 Go_BuildMethodOverlapLong <- function(final_scores, da_table) {
-  methods <- unique(da_table$method)
+  methods <- unique(da_table$method[!is.na(da_table$method)])
+  n <- nrow(final_scores)
   out <- lapply(methods, function(method) {
+    sig_col <- paste0(method, "_is_significant")
+    is_sig  <- final_scores[[sig_col]] %||% rep(FALSE, n)
+    if (length(is_sig) != n) is_sig <- rep(FALSE, n)
     data.frame(
-      feature_id = final_scores$feature_id,
-      plot_label = final_scores$plot_label,
+      feature_id        = final_scores$feature_id,
+      plot_label        = final_scores$plot_label,
       plot_label_unique = final_scores$plot_label_unique,
-      method = method,
-      is_significant = final_scores[[paste0(method, "_is_significant")]] %||% FALSE,
-      stringsAsFactors = FALSE
+      method            = method,
+      is_significant    = is_sig,
+      stringsAsFactors  = FALSE
     )
   })
   do.call(rbind, out)

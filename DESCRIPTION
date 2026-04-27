@@ -1,16 +1,15 @@
-Package: ConDAdist
-Title: Consensus Differential Abundance With Distance-Guided Scoring
-Version: 0.0.0.9000
+Package: ConDAdistV4
+Title: Consensus Differential Abundance With Configurable P-Value Combination (V4)
+Version: 0.4.1
 Authors@R:
     person("Heekuk", "Park", email = "hp2523@cumc.columbia.edu", role = c("aut", "cre"))
-Description: Provides a distance-guided consensus framework for microbiome
-    differential abundance analysis. ConDAdist supports single-method
-    analysis, multi-method consensus scoring, and optional
-    distance-guided evidence integration through the orchestrator
-    Go_ConDaDist(). The package standardizes outputs across supported
-    DA methods, exports directory-first CSV results, and creates
-    bridge files for downstream volcano plotting with the existing Go
-    tool family.
+Description: Unified JSD-line CDD core that subsumes ConDA-dist V1_JSD and
+    V2_JSD as a single V4 implementation. The main user-facing switch is the
+    p-value combiner used for DA consensus: adaptive-truncated Cauchy
+    (recommended default) or Fisher (legacy-style). Internally, Fisher uses
+    V1_JSD-style consensus and SIMPER+LOO beta contribution, while
+    adaptive-truncated Cauchy uses V2_JSD-style consensus and LOO-only beta
+    contribution.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true

@@ -47,6 +47,7 @@ Go_FilterFeatures <- function(feature_table, metadata, prevalence = 0.1,
 }
 
 #' Run all requested DA method adapters
+#' @export
 Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2,
                             random_effects = NULL, covariates = NULL, methods, method_controls = NULL,
                             alpha = 0.05) {
@@ -54,6 +55,8 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
     ancombc2 = Go_DA_ancombc2,
     aldex2 = Go_DA_aldex2,
     maaslin2 = Go_DA_maaslin,
+    corncob_wald = Go_DA_corncob_wald,
+    corncob_lrt = Go_DA_corncob_lrt,
     corncob = Go_DA_corncob,
     deseq2 = Go_DA_deseq2
   )
@@ -63,6 +66,8 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
     ancombc2 = c("ANCOMBC", "phyloseq"),
     aldex2   = c("ALDEx2", "phyloseq"),
     maaslin2 = c("Maaslin2", "phyloseq"),
+    corncob_wald = c("corncob", "phyloseq"),
+    corncob_lrt  = c("corncob", "phyloseq"),
     corncob  = c("corncob", "phyloseq"),
     deseq2   = c("DESeq2", "phyloseq")
   )
@@ -107,7 +112,9 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
         group_2 = group_2,
         random_effects = random_effects,
         covariates = covariates,
-        control = method_controls[[method]] %||% if (identical(method, "maaslin2")) method_controls[["maaslin"]] else NULL,
+        control = method_controls[[method]] %||%
+          if (identical(method, "maaslin2")) method_controls[["maaslin"]] else
+          if (identical(method, "corncob")) method_controls[["corncob_lrt"]] else NULL,
         alpha = alpha
       ),
       error = function(e) {
@@ -358,12 +365,12 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
           asv_matrix <- as.matrix(asv_matrix)
         }
 
-        set.seed(control$seed %||% 1L)
+        if (!is.null(control$seed)) set.seed(control$seed)
         fit_try <- try(ALDEx2::aldex(asv_matrix, conds, test = "t",
                                      mc.samples = control$mc_samples,
                                      denom = control$denom), silent = TRUE)
         if (inherits(fit_try, "try-error")) {
-          set.seed(control$seed %||% 1L)
+          if (!is.null(control$seed)) set.seed(control$seed)
           fit <- ALDEx2::aldex(t(asv_matrix), conds, test = "t",
                                mc.samples = control$mc_samples,
                                denom = control$denom)
@@ -400,7 +407,7 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
         )
         mod_matrix <- stats::model.matrix(design_formula, data = prepared$metadata)
 
-        set.seed(control$seed %||% 1L)
+        if (!is.null(control$seed)) set.seed(control$seed)
         glm_fit <- ALDEx2::aldex(native_counts, mod_matrix, test = "glm",
                                  mc.samples = control$mc_samples,
                                  denom = control$denom,
@@ -543,14 +550,14 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
   )
 }
 
-#' corncob adapter
-Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
+#' corncob adapter core
+Go_DA_corncob_common <- function(feature_table, metadata, group_var, group_1, group_2,
                           random_effects = NULL,
-                          covariates = NULL, control = NULL, alpha = 0.05) {
-  control <- Go_GetDAMethodControls("corncob", control)
-  native_check <- Go_ShouldUseNativeAdapter("corncob", feature_table, metadata, group_var, group_1, group_2)
+                          covariates = NULL, control = NULL, alpha = 0.05,
+                          method_key = "corncob_wald", test_type = "Wald") {
+  native_check <- Go_ShouldUseNativeAdapter(method_key, feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: corncob skipped — running Wilcoxon fallback. Reason: ", native_check$note)
+    message("[ConDA] WARNING: ", method_key, " skipped — running Wilcoxon fallback. Reason: ", native_check$note)
     return(Go_BasicEffectAdapter(
       feature_table = feature_table,
       metadata = metadata,
@@ -560,13 +567,13 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
       covariates = covariates,
       method = "wilcoxon",
       effect_type = "log2FC",
-      notes = paste0("wilcoxon fallback (corncob skipped: ", native_check$note, ")"),
+      notes = paste0("wilcoxon fallback (", method_key, " skipped: ", native_check$note, ")"),
       control = NULL,
       alpha = alpha
     ))
   }
   Go_RunNativeAdapter(
-    method_name = "corncob",
+    method_name = method_key,
     package_names = c("corncob", "phyloseq"),
     native_fun = function() {
       prepared0 <- Go_PrepareDAInputs(
@@ -604,7 +611,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
           formula_null = method_input$null_formula,
           phi.formula_null = method_input$phi_null_formula,
           data = ps,
-          test = "Wald",
+          test = test_type,
           boot = this_control$boot,
           fdr_cutoff = this_control$fdr_cutoff,
           filter_discriminant = this_control$filter_discriminant,
@@ -618,7 +625,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
           temp_group_var = prepared$temp_group_var
         ))
         out <- Go_CreateBaseDAResult(
-          prepared, "corncob", "coef",
+          prepared, method_key, "coef",
           Go_CombineNotes(note_label, Go_ControlNote(this_control))
         )
         out <- Go_FillDAResult(
@@ -634,7 +641,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
       }
 
       first_try <- try(
-        run_attempt(prepared0, control, "Native corncob adapter"),
+        run_attempt(prepared0, control, paste0("Native ", method_key, " adapter")),
         silent = TRUE
       )
       if (!inherits(first_try, "try-error")) {
@@ -653,7 +660,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
         )
       )
       second_try <- try(
-        run_attempt(prepared0, retry_control, "Native corncob adapter (optimized retry)"),
+        run_attempt(prepared0, retry_control, paste0("Native ", method_key, " adapter (optimized retry)")),
         silent = TRUE
       )
       if (inherits(second_try, "try-error")) {
@@ -662,7 +669,7 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
       second_try
     },
     fallback_fun = function(note) {
-      message("[ConDA] WARNING: corncob failed — running Wilcoxon fallback. Reason: ", note)
+      message("[ConDA] WARNING: ", method_key, " failed — running Wilcoxon fallback. Reason: ", note)
       Go_BasicEffectAdapter(
         feature_table = feature_table,
         metadata = metadata,
@@ -672,12 +679,37 @@ Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
         covariates = covariates,
         method = "wilcoxon",
         effect_type = "log2FC",
-        notes = paste0("wilcoxon fallback (corncob failed: ", note, ")"),
+        notes = paste0("wilcoxon fallback (", method_key, " failed: ", note, ")"),
         control = NULL,
         alpha = alpha
       )
     }
   )
+}
+
+Go_DA_corncob_wald <- function(feature_table, metadata, group_var, group_1, group_2,
+                               random_effects = NULL, covariates = NULL, control = NULL, alpha = 0.05) {
+  control <- Go_GetDAMethodControls("corncob_wald", control)
+  Go_DA_corncob_common(feature_table, metadata, group_var, group_1, group_2,
+                       random_effects = random_effects, covariates = covariates,
+                       control = control, alpha = alpha,
+                       method_key = "corncob_wald", test_type = "Wald")
+}
+
+Go_DA_corncob_lrt <- function(feature_table, metadata, group_var, group_1, group_2,
+                              random_effects = NULL, covariates = NULL, control = NULL, alpha = 0.05) {
+  control <- Go_GetDAMethodControls("corncob_lrt", control)
+  Go_DA_corncob_common(feature_table, metadata, group_var, group_1, group_2,
+                       random_effects = random_effects, covariates = covariates,
+                       control = control, alpha = alpha,
+                       method_key = "corncob_lrt", test_type = "LRT")
+}
+
+Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
+                          random_effects = NULL, covariates = NULL, control = NULL, alpha = 0.05) {
+  Go_DA_corncob_lrt(feature_table, metadata, group_var, group_1, group_2,
+                     random_effects = random_effects, covariates = covariates,
+                     control = control, alpha = alpha)
 }
 
 #' DESeq2 adapter

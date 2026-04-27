@@ -1,3 +1,73 @@
+# ---- helpers ---------------------------------------------------------------
+
+make_feature_table <- function(n_taxa = 8, n_samples = 8, seed = 1) {
+  set.seed(seed)
+  mat <- matrix(
+    as.integer(stats::rpois(n_taxa * n_samples, lambda = 100)),
+    nrow = n_taxa,
+    dimnames = list(
+      paste0("taxa", seq_len(n_taxa)),
+      paste0("s", seq_len(n_samples))
+    )
+  )
+  storage.mode(mat) <- "numeric"
+  mat
+}
+
+make_metadata <- function(n_samples = 8) {
+  data.frame(
+    group = rep(c("A", "B"), each = n_samples / 2),
+    row.names = paste0("s", seq_len(n_samples)),
+    stringsAsFactors = FALSE
+  )
+}
+
+make_da_table <- function(n = 10, seed = 1) {
+  set.seed(seed)
+  sig_pattern <- c(rep(TRUE, ceiling(n / 2)), rep(FALSE, floor(n / 2)))
+  data.frame(
+    feature_id     = rep(paste0("t", 1:n), 2),
+    method         = rep(c("deseq2", "aldex2"), each = n),
+    p_value        = c(stats::runif(n, 0, 0.1), stats::runif(n, 0.1, 1)),
+    q_value        = stats::runif(n * 2),
+    effect_size    = stats::rnorm(n * 2),
+    direction      = rep(c("up_in_group2", "up_in_group1"), length.out = n * 2),
+    is_significant = c(sig_pattern, rev(sig_pattern)),
+    stringsAsFactors = FALSE
+  )
+}
+
+make_da_consensus_v2 <- function(n = 6) {
+  data.frame(
+    feature_id              = paste0("t", 1:n),
+    n_methods_run           = 2,
+    n_methods_significant   = c(2, 1, 0, 2, 1, 0)[1:n],
+    DA_support_score        = c(1, 0.5, 0, 1, 0.5, 0)[1:n],
+    cauchy_combined_p       = c(0.01, 0.04, 0.6, 0.001, 0.03, 0.9)[1:n],
+    cauchy_combined_q       = c(0.03, 0.06, 0.7, 0.006, 0.05, 0.95)[1:n],
+    is_combined_significant = c(TRUE, FALSE, FALSE, TRUE, FALSE, FALSE)[1:n],
+    direction_consistency   = c(1, 1, 0, 1, 1, 0)[1:n],
+    effect_consistency      = c(0.9, 0.8, 0.5, 0.95, 0.7, 0.4)[1:n],
+    combined_effect_rank    = c(0.8, 0.3, 0.5, 0.9, 0.2, 0.5)[1:n],
+    min_method_q_value      = c(0.01, 0.04, 0.6, 0.001, 0.03, 0.9)[1:n],
+    stringsAsFactors        = FALSE
+  )
+}
+
+make_beta_contrib_v2 <- function(n = 6) {
+  data.frame(
+    feature_id              = paste0("t", 1:n),
+    loo_separation_delta    = c(0.05, 0.02, 0.0, 0.1, 0.03, 0.0)[1:n],
+    loo_separation_score    = c(0.7, 0.3, 0.0, 1.0, 0.4, 0.0)[1:n],
+    beta_contribution_score = c(0.7, 0.3, 0.0, 1.0, 0.4, 0.0)[1:n],
+    beta_perm_p             = rep(NA_real_, n),
+    beta_perm_q             = rep(NA_real_, n),
+    stringsAsFactors        = FALSE
+  )
+}
+
+# ---- Go_FilterFeatures -----------------------------------------------------
+
 test_that("Go_FilterFeatures retains matrix structure", {
   feature_table <- matrix(
     c(10, 0, 5, 1, 0, 2, 3, 4),
@@ -13,4 +83,459 @@ test_that("Go_FilterFeatures retains matrix structure", {
   out <- Go_FilterFeatures(feature_table, metadata, prevalence = 0, abundance = 0)
   expect_equal(ncol(out$feature_table), 4)
   expect_true(is.matrix(out$feature_table))
+})
+
+test_that("Go_FilterFeatures drops zero-prevalence features", {
+  ft <- matrix(
+    c(0, 0,   # t1: absent in all samples
+      0, 10,  # t2: present in 1 of 2 samples
+      10, 5,  # t3: present in both
+      0, 0),  # t4: absent in all samples
+    nrow = 4, byrow = TRUE,
+    dimnames = list(paste0("t", 1:4), paste0("s", 1:2))
+  )
+  md <- data.frame(g = c("A", "B"), row.names = paste0("s", 1:2))
+  out <- Go_FilterFeatures(ft, md, prevalence = 0.5, abundance = 0)
+  expect_true(all(c("t2", "t3") %in% rownames(out$feature_table)))
+  expect_false("t1" %in% rownames(out$feature_table))
+  expect_false("t4" %in% rownames(out$feature_table))
+})
+
+test_that("Go_FilterFeatures returns filter_summary with scope column", {
+  ft <- make_feature_table()
+  md <- make_metadata()
+  out <- Go_FilterFeatures(ft, md, prevalence = 0, abundance = 0)
+  out$filter_summary$filter_scope <- "pairwise"
+  expect_true("filter_scope" %in% names(out$filter_summary))
+})
+
+# ---- Go_MethodSignature ----------------------------------------------------
+
+test_that("Go_MethodSignature single method returns full name", {
+  expect_equal(Go_MethodSignature("deseq2"),   "deseq2")
+  expect_equal(Go_MethodSignature("aldex2"),   "aldex2")
+  expect_equal(Go_MethodSignature("ancombc2"), "ancombc2")
+  expect_equal(Go_MethodSignature("maaslin2"), "maaslin2")
+  expect_equal(Go_MethodSignature("corncob"),  "corncob")
+})
+
+test_that("Go_MethodSignature multi-method uses fixed-order initials DANMC", {
+  expect_equal(Go_MethodSignature(c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob")), "DANMC")
+  expect_equal(Go_MethodSignature(c("deseq2", "corncob")), "DC")
+  expect_equal(Go_MethodSignature(c("aldex2", "ancombc2")), "AN")
+  expect_equal(Go_MethodSignature(c("corncob", "deseq2")), "DC")
+})
+
+test_that("Go_MethodSignature normalises maaslin alias", {
+  expect_equal(Go_MethodSignature(c("deseq2", "maaslin")), "DM")
+})
+
+# ---- Go_ResolveMethods / Go_ResolveDistances --------------------------------
+
+test_that("Go_ResolveMethods deduplicates and lowercases", {
+  expect_equal(Go_ResolveMethods(c("DESeq2", "deseq2")), "deseq2")
+  expect_equal(Go_ResolveMethods(c("ALDEX2", "corncob")), c("aldex2", "corncob"))
+})
+
+test_that("Go_ResolveMethods normalises maaslin alias", {
+  expect_equal(Go_ResolveMethods("maaslin"), "maaslin2")
+})
+
+test_that("Go_ResolveDistances removes phylo metrics when no tree", {
+  out <- Go_ResolveDistances(c("bray", "unifrac"), phy_tree = NULL)
+  expect_true("bray" %in% out)
+  expect_false("unweighted_unifrac" %in% out)
+})
+
+test_that("Go_ResolveDistances accepts exactly 3 valid metrics without error", {
+  out <- Go_ResolveDistances(c("bray", "jaccard", "jsd"), phy_tree = NULL)
+  expect_equal(length(out), 3L)
+})
+
+test_that("Go_ResolveDistances deduplicates before checking limit", {
+  out <- Go_ResolveDistances(c("bray", "jaccard", "jsd", "bray"), phy_tree = NULL)
+  expect_equal(length(out), 3L)
+})
+
+# ---- Go_BuildComparisonPlan ------------------------------------------------
+
+test_that("Go_BuildComparisonPlan baseline vs targets", {
+  md <- data.frame(g = c("A", "B", "C"), row.names = paste0("s", 1:3))
+  plan <- Go_BuildComparisonPlan(md, "g", group_1 = "A", group_2 = c("B", "C"))
+  expect_equal(nrow(plan), 2)
+  expect_true(all(plan$group_1 == "A"))
+  expect_setequal(plan$group_2, c("B", "C"))
+})
+
+test_that("Go_BuildComparisonPlan pairwise_all", {
+  md <- data.frame(g = c("A", "B", "C"), row.names = paste0("s", 1:3))
+  plan <- Go_BuildComparisonPlan(md, "g", group_1 = NULL, group_2 = NULL,
+                                 orders = c("A", "B", "C"), pairwise_all = TRUE)
+  expect_equal(nrow(plan), 3)
+})
+
+# ---- Go_StandardizeDA ------------------------------------------------------
+
+test_that("Go_StandardizeDA produces required columns", {
+  ft <- make_feature_table()
+  md <- make_metadata()
+  da_result <- list(
+    deseq2 = Go_StandardSchema(rownames(ft))
+  )
+  da_result$deseq2$method <- "deseq2"
+  da_result$deseq2$p_value <- stats::runif(nrow(ft))
+  da_result$deseq2$q_value <- stats::p.adjust(da_result$deseq2$p_value, "BH")
+
+  out <- Go_StandardizeDA(da_result, comparison = "A_vs_B", alpha = 0.05)
+  expect_true("all_methods_standardized" %in% names(out))
+  required <- c("feature_id", "method", "p_value", "q_value", "is_significant")
+  expect_true(all(required %in% colnames(out$all_methods_standardized)))
+})
+
+# ---- Go_CombinePValuesCauchy (V2) ------------------------------------------
+
+test_that("Go_CombinePValuesCauchy returns NA for empty input", {
+  expect_true(is.na(Go_CombinePValuesCauchy(numeric(0))))
+  expect_true(is.na(Go_CombinePValuesCauchy(NA_real_)))
+})
+
+test_that("Go_CombinePValuesCauchy very small p gives small combined p", {
+  combined <- Go_CombinePValuesCauchy(c(0.001, 0.001, 0.001))
+  expect_equal(combined, 0.001, tolerance = 1e-12)
+})
+
+test_that("Go_CombinePValuesCauchy large p gives large combined p", {
+  combined <- Go_CombinePValuesCauchy(c(0.9, 0.8, 0.95))
+  expect_true(combined > 0.5)
+})
+
+test_that("Go_CombinePValuesCauchy returns value in (0, 1]", {
+  combined <- Go_CombinePValuesCauchy(c(0.01, 0.05, 0.001))
+  expect_true(combined > 0 && combined <= 1)
+})
+
+test_that("Go_CombinePValuesCauchy custom weights applied correctly", {
+  p <- c(0.001, 0.9)
+  # Weight heavily toward the small p → should give smaller result than 50/50
+  combined_heavy <- Go_CombinePValuesCauchy(p, weights = c(0.99, 0.01))
+  combined_equal  <- Go_CombinePValuesCauchy(p, weights = c(0.5, 0.5))
+  expect_true(combined_heavy < combined_equal)
+})
+
+# ---- Go_CombinedEffectRank (V2) --------------------------------------------
+
+test_that("Go_CombinedEffectRank returns values in [0, 1]", {
+  da_table <- make_da_table(n = 6)
+  feature_ids <- unique(da_table$feature_id)
+  out <- Go_CombinedEffectRank(da_table, feature_ids)
+  expect_true(all(out >= 0 & out <= 1, na.rm = TRUE))
+  expect_equal(length(out), length(feature_ids))
+})
+
+test_that("Go_CombinedEffectRank preserves feature_id names", {
+  da_table <- make_da_table(n = 5)
+  feature_ids <- unique(da_table$feature_id)
+  out <- Go_CombinedEffectRank(da_table, feature_ids)
+  expect_equal(names(out), feature_ids)
+})
+
+# ---- Go_DAConsensus (V2 columns) -------------------------------------------
+
+test_that("Go_DAConsensus produces cauchy_combined_q column (not fisher)", {
+  out <- Go_DAConsensus(make_da_table(n = 10), alpha = 0.05)
+  expect_true("cauchy_combined_q" %in% colnames(out))
+  expect_false("fisher_combined_q" %in% colnames(out))
+  expect_true("combined_effect_rank" %in% colnames(out))
+  expect_false("median_effect_size" %in% colnames(out))
+})
+
+test_that("Go_DAConsensus effect_consistency is 0 when no significant methods", {
+  da_table <- data.frame(
+    feature_id     = rep("t1", 2),
+    method         = c("deseq2", "aldex2"),
+    p_value        = c(0.8, 0.9),
+    q_value        = c(0.9, 0.95),
+    effect_size    = c(1.0, -1.0),
+    direction      = c("up_in_group2", "up_in_group1"),
+    is_significant = c(FALSE, FALSE),
+    stringsAsFactors = FALSE
+  )
+  out <- Go_DAConsensus(da_table, alpha = 0.05)
+  expect_equal(out$effect_consistency[out$feature_id == "t1"], 0)
+})
+
+test_that("Go_DAConsensus n_methods_run and DA_support_score correct", {
+  n <- 5
+  da_table <- data.frame(
+    feature_id     = paste0("t", 1:n),
+    method         = "deseq2",
+    p_value        = c(0.01, 0.02, 0.5, 0.8, 0.001),
+    q_value        = c(0.05, 0.08, 0.6, 0.9, 0.01),
+    effect_size    = c(1, -1, 0.1, -0.2, 2),
+    direction      = c("up_in_group2", "up_in_group1", "up_in_group2",
+                       "up_in_group1", "up_in_group2"),
+    is_significant = c(TRUE, TRUE, FALSE, FALSE, TRUE),
+    stringsAsFactors = FALSE
+  )
+  out <- Go_DAConsensus(da_table, alpha = 0.05)
+  expect_equal(nrow(out), n)
+  expect_true(all(out$n_methods_run == 1))
+})
+
+# ---- Go_FinalScore (V2) ----------------------------------------------------
+
+test_that("Go_FinalScore DA-only mode sets analysis_mode correctly", {
+  da_consensus <- make_da_consensus_v2(6)
+  beta_contribution <- Go_CreateEmptyBetaContribution(paste0("t", 1:6))
+
+  out <- Go_FinalScore(da_consensus, beta_contribution, beta_enabled = FALSE)
+  expect_true("final_score" %in% colnames(out))
+  expect_true("classification" %in% colnames(out))
+  expect_true(all(out$analysis_mode %in% c("da_only", "single_method")))
+})
+
+test_that("Go_FinalScore full mode sets analysis_mode = 'full'", {
+  da_consensus <- make_da_consensus_v2(4)
+  beta_contribution <- make_beta_contrib_v2(4)
+
+  out <- Go_FinalScore(da_consensus, beta_contribution, beta_enabled = TRUE)
+  expect_true(all(out$analysis_mode == "full"))
+})
+
+test_that("Go_FinalScore cauchy_da_score present (not fisher_da_score)", {
+  da_consensus <- make_da_consensus_v2(4)
+  beta_contribution <- make_beta_contrib_v2(4)
+
+  out <- Go_FinalScore(da_consensus, beta_contribution)
+  expect_true("cauchy_da_score" %in% colnames(out))
+  expect_false("fisher_da_score" %in% colnames(out))
+})
+
+test_that("Go_FinalScore loo_separation_score accepted from beta_contribution", {
+  da_consensus <- make_da_consensus_v2(4)
+  beta_contribution <- make_beta_contrib_v2(4)
+
+  expect_true("loo_separation_score" %in% colnames(beta_contribution))
+  expect_false("simper_score" %in% colnames(beta_contribution))
+  out <- Go_FinalScore(da_consensus, beta_contribution)
+  expect_equal(nrow(out), 4)
+})
+
+# ---- Go_NormalizeVector ----------------------------------------------------
+
+test_that("Go_NormalizeVector returns values in [0,1]", {
+  x <- c(1, 5, 3, 9, 0, NA)
+  out <- Go_NormalizeVector(x)
+  expect_true(all(out[is.finite(x)] >= 0 & out[is.finite(x)] <= 1))
+})
+
+test_that("Go_NormalizeVector handles all-NA input", {
+  out <- Go_NormalizeVector(rep(NA_real_, 5))
+  expect_true(all(out == 0))
+})
+
+# ---- Go_DirectionConsistency / Go_EffectConsistency ------------------------
+
+test_that("Go_DirectionConsistency returns 1 for unanimous direction", {
+  expect_equal(Go_DirectionConsistency(rep("up_in_group2", 5)), 1)
+})
+
+test_that("Go_DirectionConsistency returns 0.5 for equal split", {
+  expect_equal(Go_DirectionConsistency(c("up_in_group2", "up_in_group1")), 0.5)
+})
+
+test_that("Go_DirectionConsistency returns 0 for empty input", {
+  expect_equal(Go_DirectionConsistency(character(0)), 0)
+})
+
+test_that("Go_EffectConsistency returns 1 for single observation", {
+  expect_equal(Go_EffectConsistency(1.5), 1)
+})
+
+# ---- Go_FilePrefix ---------------------------------------------------------
+
+test_that("Go_FilePrefix produces expected pattern", {
+  out <- Go_FilePrefix("MyProj", "Control", "Treatment", methods = "deseq2")
+  expect_match(out, "deseq2")
+  expect_match(out, "Control.vs.Treatment")
+  expect_match(out, "MyProj")
+})
+
+test_that("Go_FilePrefix multi-method uses initials", {
+  out <- Go_FilePrefix("P", "A", "B", methods = c("deseq2", "aldex2"))
+  expect_match(out, "DA")
+})
+
+# ---- Go_ExportResults (file I/O) -------------------------------------------
+
+test_that("Go_ExportResults writes expected CSV files", {
+  tmp <- tempfile()
+  dir.create(tmp)
+
+  ft <- make_feature_table(4, 4)
+  md <- make_metadata(4)
+  n  <- nrow(ft)
+
+  standardized_da <- data.frame(
+    feature_id = paste0("taxa", 1:n), method = "deseq2",
+    p_value = runif(n), q_value = runif(n),
+    stringsAsFactors = FALSE
+  )
+  da_consensus <- data.frame(
+    feature_id        = paste0("taxa", 1:n),
+    cauchy_combined_p = runif(n),
+    cauchy_combined_q = runif(n),
+    stringsAsFactors  = FALSE
+  )
+  beta_summary  <- data.frame(distance = "bray", statistic = 0.3,
+                              p_value = 0.01, stringsAsFactors = FALSE)
+  beta_contrib  <- Go_CreateEmptyBetaContribution(paste0("taxa", 1:n))
+  final_scores  <- data.frame(feature_id = paste0("taxa", 1:n),
+                              final_score = runif(n),
+                              stringsAsFactors = FALSE)
+
+  files <- Go_ExportResults(
+    output_dir              = tmp,
+    filtered_feature_table  = ft,
+    standardized_da         = standardized_da,
+    da_consensus            = da_consensus,
+    beta_summary            = beta_summary,
+    beta_feature_contribution = beta_contrib,
+    final_scores            = final_scores,
+    file_prefix             = "test"
+  )
+
+  expect_true(file.exists(files$filtered_feature_table))
+  expect_true(file.exists(files$all_methods_standardized))
+  expect_true(file.exists(files$final_consensus_scores))
+  unlink(tmp, recursive = TRUE)
+})
+
+# ---- Go_BuildMethodOverlapLong (NA method guard) ---------------------------
+
+test_that("Go_BuildMethodOverlapLong handles NA methods in da_table", {
+  n <- 5
+  final_scores <- data.frame(
+    feature_id        = paste0("t", 1:n),
+    plot_label        = paste0("Taxon", 1:n),
+    plot_label_unique = paste0("Taxon", 1:n),
+    deseq2_is_significant = c(TRUE, FALSE, TRUE, FALSE, FALSE),
+    stringsAsFactors  = FALSE
+  )
+  da_table <- data.frame(
+    feature_id = paste0("t", 1:n),
+    method     = c("deseq2", "deseq2", NA, "deseq2", "deseq2"),
+    stringsAsFactors = FALSE
+  )
+  out <- Go_BuildMethodOverlapLong(final_scores, da_table)
+  expect_false(any(is.na(out$method)))
+  expect_equal(nrow(out), n)
+})
+
+test_that("Go_BuildMethodOverlapLong uses rep(FALSE) fallback not scalar", {
+  n <- 4
+  final_scores <- data.frame(
+    feature_id        = paste0("t", 1:n),
+    plot_label        = paste0("Taxon", 1:n),
+    plot_label_unique = paste0("Taxon", 1:n),
+    stringsAsFactors  = FALSE
+  )
+  da_table <- data.frame(
+    feature_id = paste0("t", 1:n),
+    method     = "aldex2",
+    stringsAsFactors = FALSE
+  )
+  out <- Go_BuildMethodOverlapLong(final_scores, da_table)
+  expect_equal(nrow(out), n)
+  expect_true(all(out$is_significant == FALSE))
+})
+
+# ---- Go_CreateEmptyBetaContribution (V2 schema) ----------------------------
+
+test_that("Go_CreateEmptyBetaContribution V2 has loo columns not simper", {
+  ids <- paste0("t", 1:5)
+  out <- Go_CreateEmptyBetaContribution(ids)
+  expect_equal(out$feature_id, ids)
+  expect_true("loo_separation_delta" %in% colnames(out))
+  expect_true("loo_separation_score" %in% colnames(out))
+  expect_true("beta_contribution_score" %in% colnames(out))
+  expect_false("simper_contribution" %in% colnames(out))
+  expect_false("simper_score" %in% colnames(out))
+  expect_false("delta_R2" %in% colnames(out))
+  expect_true(all(is.na(out$beta_contribution_score)))
+})
+
+# ---- Go_WeightSensitivity (V2) --------------------------------------------
+
+test_that("Go_WeightSensitivity returns data.frame with expected columns", {
+  da_consensus <- make_da_consensus_v2(4)
+  beta_contribution <- make_beta_contrib_v2(4)
+
+  out <- Go_WeightSensitivity(da_consensus, beta_contribution,
+                              n_grid = 3L, beta_enabled = TRUE)
+  expect_true(is.data.frame(out))
+  expect_true(all(c("feature_id", "mean_rank", "sd_rank", "rank_stability") %in% colnames(out)))
+  expect_equal(nrow(out), 4)
+})
+
+test_that("Go_WeightSensitivity rank_stability in [0, 1]", {
+  da_consensus <- make_da_consensus_v2(6)
+  beta_contribution <- make_beta_contrib_v2(6)
+
+  out <- Go_WeightSensitivity(da_consensus, beta_contribution,
+                              n_grid = 3L, beta_enabled = FALSE)
+  expect_true(all(out$rank_stability >= 0 & out$rank_stability <= 1))
+})
+
+test_that("Go_WeightSensitivity feature mapping is correct (not sorted order)", {
+  # All features except t1 have identical scores → t1 should consistently rank 1st.
+  # If feature mapping were wrong, t1's rank would be assigned to a different feature.
+  da_consensus <- make_da_consensus_v2(4)
+  # Force t1 to stand out: highest cauchy signal, highest combined_effect_rank
+  da_consensus$cauchy_combined_q[da_consensus$feature_id == "t1"] <- 1e-10
+  da_consensus$is_combined_significant[da_consensus$feature_id == "t1"] <- TRUE
+  da_consensus$combined_effect_rank[da_consensus$feature_id == "t1"] <- 1.0
+  beta_contribution <- make_beta_contrib_v2(4)
+  beta_contribution$beta_contribution_score[beta_contribution$feature_id == "t1"] <- 1.0
+
+  out <- Go_WeightSensitivity(da_consensus, beta_contribution,
+                              n_grid = 3L, beta_enabled = TRUE)
+  # t1 must have the lowest mean_rank (= consistently top-ranked)
+  expect_equal(out$feature_id[1], "t1")
+})
+
+test_that("Go_CombinedEffectRank handles duplicate (method, feature_id) without crash", {
+  # Simulate a da_table where deseq2 accidentally has two rows for t1
+  da_table <- data.frame(
+    feature_id  = c("t1", "t1", "t2", "t3"),
+    method      = c("deseq2", "deseq2", "deseq2", "deseq2"),
+    effect_size = c(1.0, 2.0, -0.5, 0.3),
+    stringsAsFactors = FALSE
+  )
+  feature_ids <- c("t1", "t2", "t3")
+  expect_no_error({
+    out <- Go_CombinedEffectRank(da_table, feature_ids)
+  })
+  expect_equal(length(out), 3L)
+  expect_equal(names(out), feature_ids)
+})
+
+# ---- inst/extdata example data --------------------------------------------
+
+test_that("minimal_example_ps.rds loads as phyloseq", {
+  skip_if_not_installed("phyloseq")
+  path <- system.file("extdata", "minimal_example_ps.rds", package = "ConDAdist")
+  if (!nzchar(path)) {
+    path <- file.path(system.file(package = "ConDAdist"), "extdata", "minimal_example_ps.rds")
+  }
+  if (!file.exists(path)) {
+    path <- file.path(
+      rprojroot::find_package_root_file("inst/extdata/minimal_example_ps.rds")
+    )
+  }
+  skip_if(!file.exists(path), "minimal_example_ps.rds not found — skipping")
+  ps <- readRDS(path)
+  expect_s4_class(ps, "phyloseq")
+  expect_gte(phyloseq::ntaxa(ps), 10L)
+  expect_gte(phyloseq::nsamples(ps), 4L)
 })

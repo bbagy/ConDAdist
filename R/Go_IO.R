@@ -18,6 +18,7 @@ Go_RenameGroupColumns <- function(df, group_1, group_2) {
 }
 
 #' Export standard output tables
+#' @export
 Go_ExportResults <- function(output_dir, filtered_feature_table, standardized_da,
                              da_consensus, beta_summary,
                              beta_feature_contribution,
@@ -132,7 +133,9 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
           ancom2.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
           ancom2.FDR = ifelse(q_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS"))
       },
-      corncob = {
+      corncob = ,
+      corncob_wald = ,
+      corncob_lrt = {
         q_bridge <- .fill_q(x$p_value, x$q_value)
         transform(x, corncob_coef = coef, corncob_pvalue = p_value, corncob_qvalue = q_bridge,
           corncob.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
@@ -166,14 +169,26 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     consensus$name_token <- if (is.null(name)) NA_character_ else as.character(name)
     consensus$comparison_token <- comparison_token
     consensus <- Go_RenameGroupColumns(consensus, group_1, group_2)
+    consensus_p <- if ("combined_p" %in% colnames(consensus)) consensus$combined_p else consensus$cauchy_combined_p
+    consensus_q <- if ("combined_q" %in% colnames(consensus)) consensus$combined_q else consensus$cauchy_combined_q
+    # V1_JSD skeleton uses median_effect_size for up/down; V2_JSD uses combined_effect_rank.
+    skel_vec <- if ("consensus_skeleton" %in% colnames(consensus)) unique(consensus$consensus_skeleton) else "v2"
+    skel_vec <- skel_vec[!is.na(skel_vec)]
+    use_v1 <- length(skel_vec) == 1 && identical(skel_vec, "v1") &&
+              "median_effect_size" %in% colnames(consensus)
+    direction_up <- if (use_v1) {
+      consensus$median_effect_size >= 0
+    } else {
+      consensus$combined_effect_rank >= 0.5
+    }
     consensus$condadist.P <- ifelse(
-      consensus$fisher_combined_p < 0.05,
-      ifelse(consensus$median_effect_size >= 0, "up", "down"),
+      consensus_p < 0.05,
+      ifelse(direction_up, "up", "down"),
       "NS"
     )
     consensus$condadist.FDR <- ifelse(
-      consensus$fisher_combined_q < 0.05,
-      ifelse(consensus$median_effect_size >= 0, "up", "down"),
+      consensus_q < 0.05,
+      ifelse(direction_up, "up", "down"),
       "NS"
     )
     dist_signature <- if (!is.null(distances) && length(distances) > 0)

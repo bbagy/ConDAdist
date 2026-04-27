@@ -1,6 +1,6 @@
 #' Compute modular beta-diversity distances
 Go_BetaDistance <- function(feature_table, metadata, group_var, group_1, group_2,
-                            distances = c("bray", "jaccard", "aitchison"),
+                            distances = c("bray", "jaccard", "jsd"),
                             phy_tree = NULL,
                             n_permutations = 999L) {
   feature_table <- Go_AsMatrix(feature_table)
@@ -8,7 +8,7 @@ Go_BetaDistance <- function(feature_table, metadata, group_var, group_1, group_2
   calculators <- list(
     bray = Go_Dist_bray,
     jaccard = Go_Dist_jaccard,
-    aitchison = Go_Dist_aitchison,
+    jsd = Go_Dist_jsd,
     unweighted_unifrac = Go_Dist_unweighted_unifrac,
     weighted_unifrac = Go_Dist_weighted_unifrac
   )
@@ -60,9 +60,15 @@ Go_BetaDistance <- function(feature_table, metadata, group_var, group_1, group_2
 }
 
 #' Estimate feature-level beta contributions
+#'
+#' @param method Contribution formula. \code{"loo_only"} (default, V2_JSD/V4 behaviour)
+#'   uses only the leave-one-taxon-out separation delta. \code{"simper_loo"} (V1_JSD
+#'   behaviour) averages SIMPER contribution with the LOO delta.
 Go_BetaContribution <- function(feature_table, metadata, group_var, group_1, group_2,
                                 beta_distances, phy_tree = NULL,
-                                n_beta_permutations = 99L) {
+                                n_beta_permutations = 99L,
+                                method = c("loo_only", "simper_loo")) {
+  method <- match.arg(method)
   feature_table <- Go_AsMatrix(feature_table)
   feature_ids   <- rownames(feature_table)
   group_vec     <- metadata[[group_var]]
@@ -81,15 +87,9 @@ Go_BetaContribution <- function(feature_table, metadata, group_var, group_1, gro
     numeric(1)
   )
 
-  simper_raw   <- Go_ComputeSIMPERContribution(
-    feature_table = ft, group_factor = group_factor
-  )
-  simper_raw   <- simper_raw[feature_ids]
-  simper_score <- Go_NormalizeVector(simper_raw)
-
-  delta_r2 <- numeric(length(feature_ids))
+  loo_separation_delta <- numeric(length(feature_ids))
   for (idx in seq_along(feature_ids)) {
-    delta_r2[idx] <- Go_LeaveOneTaxonOutScore(
+    loo_separation_delta[idx] <- Go_LeaveOneTaxonOutScore(
       feature_table  = ft,
       target_feature = feature_ids[idx],
       group_factor   = group_factor,
@@ -98,10 +98,21 @@ Go_BetaContribution <- function(feature_table, metadata, group_var, group_1, gro
       phy_tree       = phy_tree
     )
   }
-  delta_r2_score          <- Go_NormalizeVector(delta_r2)
-  beta_contribution_score <- rowMeans(
-    cbind(simper_score, delta_r2_score), na.rm = TRUE
-  )
+  loo_separation_score    <- Go_NormalizeVector(loo_separation_delta)
+
+  if (identical(method, "simper_loo")) {
+    simper_raw   <- Go_ComputeSIMPERContribution(feature_table = ft, group_factor = group_factor)
+    simper_raw   <- simper_raw[feature_ids]
+    simper_score <- Go_NormalizeVector(simper_raw)
+    beta_contribution_score <- rowMeans(
+      cbind(simper_score, loo_separation_score), na.rm = TRUE
+    )
+  } else {
+    simper_raw   <- rep(NA_real_, length(feature_ids))
+    simper_score <- rep(NA_real_, length(feature_ids))
+    beta_contribution_score <- loo_separation_score
+  }
+
   perm_plan <- Go_AdjustBetaPermutations(
     n_beta_permutations = n_beta_permutations,
     n_features = length(feature_ids)
@@ -120,24 +131,32 @@ Go_BetaContribution <- function(feature_table, metadata, group_var, group_1, gro
       dist_matrices = dist_matrices_sub,
       observed_beta_score = beta_contribution_score,
       phy_tree = phy_tree,
-      n_permutations = perm_plan$n_permutations
+      n_permutations = perm_plan$n_permutations,
+      method = method
     )
   } else {
     beta_perm_p <- rep(NA_real_, length(feature_ids))
   }
 
-  data.frame(
+  out <- data.frame(
     feature_id              = feature_ids,
-    simper_contribution     = unname(simper_raw),
-    simper_score            = unname(simper_score),
-    delta_R2                = unname(delta_r2),
-    delta_R2_score          = unname(delta_r2_score),
+    loo_separation_delta    = unname(loo_separation_delta),
+    loo_separation_score    = unname(loo_separation_score),
     beta_contribution_score = unname(beta_contribution_score),
     beta_perm_p             = unname(beta_perm_p),
     beta_perm_q             = stats::p.adjust(unname(beta_perm_p), method = "BH"),
     beta_perm_note          = perm_plan$note,
     stringsAsFactors        = FALSE
   )
+
+  if (identical(method, "simper_loo")) {
+    # V1_JSD compatibility columns
+    out$simper_contribution <- unname(simper_raw)
+    out$simper_score        <- unname(simper_score)
+    out$delta_R2            <- unname(loo_separation_delta)
+    out$delta_R2_score      <- unname(loo_separation_score)
+  }
+  out
 }
 
 Go_Dist_jaccard <- function(feature_table, phy_tree = NULL) {
@@ -147,6 +166,38 @@ Go_Dist_jaccard <- function(feature_table, phy_tree = NULL) {
     return(vegan::vegdist(binary_table, method = "jaccard"))
   }
   stats::dist(binary_table, method = "manhattan")
+}
+
+Go_Dist_jsd <- function(feature_table, phy_tree = NULL) {
+  feature_table <- Go_AsMatrix(feature_table)
+  sample_mat <- t(feature_table)
+  sample_mat <- sample_mat + 0.5
+  sample_mat <- sweep(sample_mat, 1, rowSums(sample_mat), "/")
+  sample_mat[!is.finite(sample_mat)] <- 0
+
+  n <- nrow(sample_mat)
+  out <- matrix(0, nrow = n, ncol = n, dimnames = list(rownames(sample_mat), rownames(sample_mat)))
+
+  kl_div <- function(p, q) {
+    keep <- p > 0 & q > 0
+    if (!any(keep)) return(0)
+    sum(p[keep] * log(p[keep] / q[keep]))
+  }
+
+  for (i in seq_len(n)) {
+    if (i >= n) next
+    for (j in seq.int(i + 1L, n)) {
+      p <- sample_mat[i, ]
+      q <- sample_mat[j, ]
+      m <- 0.5 * (p + q)
+      jsd <- 0.5 * kl_div(p, m) + 0.5 * kl_div(q, m)
+      d <- sqrt(max(jsd, 0))
+      out[i, j] <- d
+      out[j, i] <- d
+    }
+  }
+
+  stats::as.dist(out)
 }
 
 Go_Dist_aitchison <- function(feature_table, phy_tree = NULL) {
@@ -238,7 +289,9 @@ Go_RunPERMANOVA <- function(dist_mat, group_factor, n_permutations = 999L) {
 
 Go_BetaPermutationPvalue <- function(ft, group_factor, dist_matrices,
                                      observed_beta_score, phy_tree = NULL,
-                                     n_permutations = 99L) {
+                                     n_permutations = 99L,
+                                     method = c("loo_only", "simper_loo")) {
+  method <- match.arg(method)
   n_features <- length(observed_beta_score)
 
   if (is.null(n_permutations) || n_permutations < 1L) {
@@ -256,21 +309,12 @@ Go_BetaPermutationPvalue <- function(ft, group_factor, dist_matrices,
       function(metric) {
         dm <- dist_matrices[[metric]]
         if (is.null(dm)) return(NA_real_)
-        # dist_matrices는 이미 keep 서브셋됨
         Go_GroupSeparationScore(as.matrix(dm), perm_group)
       },
       numeric(1)
     )
 
-    perm_simper <- tryCatch(
-      Go_ComputeSIMPERContribution(
-        feature_table = ft, group_factor = perm_group
-      ),
-      error = function(e) rep(NA_real_, n_features)
-    )
-    perm_simper_score <- Go_NormalizeVector(unname(perm_simper))
-
-    perm_delta_r2 <- vapply(
+    perm_loo_delta <- vapply(
       rownames(ft),
       function(fid) {
         tryCatch(
@@ -287,10 +331,20 @@ Go_BetaPermutationPvalue <- function(ft, group_factor, dist_matrices,
       },
       numeric(1)
     )
-    perm_delta_r2_score <- Go_NormalizeVector(perm_delta_r2)
-    null_mat[perm_i, ] <- rowMeans(
-      cbind(perm_simper_score, perm_delta_r2_score), na.rm = TRUE
-    )
+    perm_loo_score <- Go_NormalizeVector(perm_loo_delta)
+
+    if (identical(method, "simper_loo")) {
+      perm_simper <- tryCatch(
+        Go_ComputeSIMPERContribution(feature_table = ft, group_factor = perm_group),
+        error = function(e) rep(NA_real_, n_features)
+      )
+      perm_simper_score <- Go_NormalizeVector(unname(perm_simper))
+      null_mat[perm_i, ] <- rowMeans(
+        cbind(perm_simper_score, perm_loo_score), na.rm = TRUE
+      )
+    } else {
+      null_mat[perm_i, ] <- perm_loo_score
+    }
   }
 
   # empirical p-value: P(null >= observed)
