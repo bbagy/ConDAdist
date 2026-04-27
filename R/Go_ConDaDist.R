@@ -161,10 +161,7 @@ Go_ConDaDist <- function(
     filter_scope = filter_scope
   )
   root_dir <- if (is.list(result) && !is.null(result$return_dir)) result$return_dir else result
-  resolved_methods <- Go_ResolveMethods(methods)
-  is_single <- length(resolved_methods) == 1 && (is.null(distances) || length(distances) == 0)
-  subdir <- if (is_single) "ConDaDist_plot_single_Tab" else "ConDaDist_plot_Tab"
-  invisible(file.path(root_dir, "table", subdir))
+  invisible(root_dir)
 }
 
 Go_RunConDaDistMain <- function(
@@ -301,7 +298,7 @@ Go_RunConDaDistMain <- function(
     single$project <- project
     single$output_root_dir <- root_output_dir
     single$output_table_dir <- output_layout$table
-    single$return_dir <- normalizePath(root_output_dir, winslash = "/", mustWork = FALSE)
+    single$return_dir <- normalizePath(output_layout$conda_dist_single_volcano, winslash = "/", mustWork = FALSE)
     return(invisible(single))
   }
 
@@ -310,7 +307,7 @@ Go_RunConDaDistMain <- function(
     output_root_dir = root_output_dir,
     output_table_dir = output_layout$table,
     comparisons = comparison_results,
-    return_dir = normalizePath(root_output_dir, winslash = "/", mustWork = FALSE)
+    return_dir = normalizePath(output_layout$conda_dist_single_volcano, winslash = "/", mustWork = FALSE)
   ))
 }
 
@@ -499,6 +496,8 @@ Go_RunSingleDAensemble <- function(
   if (isTRUE(qc_plot)) {
     qc_dir <- Go_CreateQCPlotDir(dirname(output_dir), group_1, group_2)
     message("[ConDA] Generating QC plots.")
+    result$file_prefix  <- file_prefix
+    result$input_bundle <- input_bundle
     qc_out <- tryCatch(
       Go_ConDaQCplot(
         result = result,

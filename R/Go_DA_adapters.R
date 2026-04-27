@@ -47,6 +47,7 @@ Go_FilterFeatures <- function(feature_table, metadata, prevalence = 0.1,
 }
 
 #' Run all requested DA method adapters
+#' @export
 Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2,
                             random_effects = NULL, covariates = NULL, methods, method_controls = NULL,
                             alpha = 0.05) {

@@ -18,6 +18,7 @@ Go_RenameGroupColumns <- function(df, group_1, group_2) {
 }
 
 #' Export standard output tables
+#' @export
 Go_ExportResults <- function(output_dir, filtered_feature_table, standardized_da,
                              da_consensus, beta_summary,
                              beta_feature_contribution,

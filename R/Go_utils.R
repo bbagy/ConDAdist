@@ -1187,6 +1187,7 @@ Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback
 }
 
 #' List all ConDA-dist dependencies with their install source
+#' @export
 Go_DependencyList <- function() {
   list(
     # Bioconductor
@@ -1216,6 +1217,7 @@ Go_DependencyList <- function() {
 #' Check which ConDA-dist dependencies are missing
 #'
 #' Returns a named list with $bioc and $cran vectors of missing package names.
+#' @export
 Go_CheckDependencies <- function() {
   deps <- Go_DependencyList()
   list(

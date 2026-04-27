@@ -84,6 +84,7 @@ Go_ConDaQCplot <- function(result,
   ) +
     ggplot2::geom_point(alpha = 0.8) +
     ggplot2::scale_color_manual(values = class_cols, labels = class_labels, drop = FALSE) +
+    ggplot2::scale_size_continuous(range = c(1.5, 4)) +
     ggplot2::labs(
       title = "ConDAdist",
       subtitle = "Consensus Volcano",
@@ -373,15 +374,19 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
 }
 
 Go_BuildMethodOverlapLong <- function(final_scores, da_table) {
-  methods <- unique(da_table$method)
+  methods <- unique(da_table$method[!is.na(da_table$method)])
+  n <- nrow(final_scores)
   out <- lapply(methods, function(method) {
+    sig_col <- paste0(method, "_is_significant")
+    is_sig  <- final_scores[[sig_col]] %||% rep(FALSE, n)
+    if (length(is_sig) != n) is_sig <- rep(FALSE, n)
     data.frame(
-      feature_id = final_scores$feature_id,
-      plot_label = final_scores$plot_label,
+      feature_id        = final_scores$feature_id,
+      plot_label        = final_scores$plot_label,
       plot_label_unique = final_scores$plot_label_unique,
-      method = method,
-      is_significant = final_scores[[paste0(method, "_is_significant")]] %||% FALSE,
-      stringsAsFactors = FALSE
+      method            = method,
+      is_significant    = is_sig,
+      stringsAsFactors  = FALSE
     )
   })
   do.call(rbind, out)
