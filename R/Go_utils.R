@@ -71,14 +71,20 @@ Go_ExtractTaxonomyTable <- function(ps) {
     vals <- as.character(x)
     vals <- vals[!is.na(vals) & nzchar(trimws(vals)) & vals != "__"]
     vals <- vals[!grepl("^NA(\\s+NA)*$", vals)]
-    # 여러 rank에 같은 값이 반복되는 경우(예: Order=Family=Genus 모두 "Clostridia UCG-014")
-    # 중복 제거 후 unique 값의 첫 번째를 사용
     vals <- unique(vals)
     if (length(vals) == 0) {
       return(NA_character_)
     }
     vals[1L]
   })
+  # Append ASV_ID suffix if present: "Species (ASV000001)"
+  if ("ASV_ID" %in% colnames(tax_df)) {
+    has_asv <- !is.na(tax_df$ASV_ID) & nzchar(tax_df$ASV_ID)
+    has_name <- !is.na(tax_df$ShortName)
+    tax_df$ShortName[has_asv & has_name]  <- paste0(tax_df$ShortName[has_asv & has_name],
+                                                     " (", tax_df$ASV_ID[has_asv & has_name], ")")
+    tax_df$ShortName[has_asv & !has_name] <- tax_df$ASV_ID[has_asv & !has_name]
+  }
   tax_df
 }
 
