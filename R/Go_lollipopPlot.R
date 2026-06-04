@@ -132,6 +132,7 @@ Go_lollipopPlot <- function(project,
     } else {
       NULL
     }
+    asv_id_col <- if ("ASV_ID" %in% colnames(df)) "ASV_ID" else NULL
 
     labels <- vapply(seq_len(nrow(df)), function(i) {
       vals <- vapply(taxonomy_priority, function(col) df[i, col], character(1))
@@ -141,6 +142,12 @@ Go_lollipopPlot <- function(project,
       }
       if (is.na(lbl) || !nzchar(trimws(lbl))) {
         lbl <- paste0("Feature_", i)
+      }
+      if (!is.null(asv_id_col)) {
+        asv_id <- as.character(df[i, asv_id_col])
+        if (!is.na(asv_id) && nzchar(trimws(asv_id)) && asv_id != "NA") {
+          lbl <- paste0(lbl, " (", asv_id, ")")
+        }
       }
       lbl
     }, character(1))
@@ -265,9 +272,29 @@ Go_lollipopPlot <- function(project,
       out_subdir <- "DA_plot"
       score_label <- "Signed significance score (-log10 adj. p)"
     } else if (tool == "condadist") {
-      effect_col <- "median_effect_size"
-      p_col <- "fisher_combined_p"
-      q_col <- "fisher_combined_q"
+      method_effect_cols <- grep("_effect_size$", colnames(df), value = TRUE)
+      if (!"median_effect_size" %in% colnames(df) && length(method_effect_cols) > 0) {
+        effect_mat <- data.frame(lapply(df[, method_effect_cols, drop = FALSE], function(x) suppressWarnings(as.numeric(x))))
+        df$median_effect_size <- apply(effect_mat, 1, function(x) {
+          x <- x[is.finite(x) & !is.na(x)]
+          if (length(x) == 0) NA_real_ else stats::median(x)
+        })
+      }
+      if ("combined_effect_rank" %in% colnames(df)) {
+        direction_from_call <- ifelse(
+          "condadist.P" %in% colnames(df) & df$condadist.P == "up", 1,
+          ifelse("condadist.P" %in% colnames(df) & df$condadist.P == "down", -1, NA_real_)
+        )
+        fallback_direction <- if ("median_effect_size" %in% colnames(df)) sign(suppressWarnings(as.numeric(df$median_effect_size))) else NA_real_
+        direction_from_call[!is.finite(direction_from_call) | is.na(direction_from_call)] <- fallback_direction[!is.finite(direction_from_call) | is.na(direction_from_call)]
+        direction_from_call[!is.finite(direction_from_call) | is.na(direction_from_call)] <- 0
+        df$condadist_signed_effect <- abs(suppressWarnings(as.numeric(df$combined_effect_rank))) * direction_from_call
+        effect_col <- "condadist_signed_effect"
+      } else {
+        effect_col <- "median_effect_size"
+      }
+      p_col <- if ("fisher_combined_p" %in% colnames(df)) "fisher_combined_p" else "combined_p"
+      q_col <- if ("fisher_combined_q" %in% colnames(df)) "fisher_combined_q" else "combined_q"
       # CSV 파일명(condadist.{sig}.(...).csv)에서 method/dist 시그니처 추출
       conda_sig <- if (!is.null(source_name)) {
         m <- regmatches(source_name, regexpr("^condadist\\.(.+?)(?=\\.\\()", source_name, perl = TRUE))
@@ -283,7 +310,7 @@ Go_lollipopPlot <- function(project,
       conda_subtitle <- if (length(conda_dist_parts) > 0) paste("dist:", paste(conda_dist_parts, collapse = " \u00b7 ")) else ""
       file_tool <- if (nzchar(conda_sig)) paste0("ConDA-dist.", conda_sig) else "ConDA-dist"
       out_subdir <- "ConDa_plot"
-      score_label <- "Signed significance  (sign \u00d7 \u2212log\u2081\u2080 fisher q)"
+      score_label <- "Signed significance  (sign \u00d7 \u2212log\u2081\u2080 consensus q)"
     } else {
       message(sprintf("[Go_lollipopPlot] %s: required effect column not found for tool '%s'.", if (is.null(source_name)) "<unknown>" else source_name, tool))
       return(NULL)
@@ -387,6 +414,12 @@ Go_lollipopPlot <- function(project,
   }
 
   if (!is.null(dev.list())) dev.off()
+  sizing_device <- tempfile(fileext = ".pdf")
+  grDevices::pdf(sizing_device)
+  on.exit({
+    if (!is.null(grDevices::dev.list())) grDevices::dev.off()
+    unlink(sizing_device)
+  }, add = TRUE)
 
   out_root <- file.path(sprintf("%s_%s", project, format(Sys.Date(), "%y%m%d")))
   if (!dir.exists(out_root)) dir.create(out_root)
@@ -492,6 +525,16 @@ Go_lollipopPlot <- function(project,
     }
 
     use_fscore_size <- any(!is.na(plot_df$final_score) & is.finite(plot_df$final_score))
+    point_layer <- if (use_fscore_size) {
+      ggplot2::geom_point(ggplot2::aes(shape = dirPadj, size = final_score))
+    } else {
+      ggplot2::geom_point(ggplot2::aes(shape = dirPadj), size = 3)
+    }
+    size_layer <- if (use_fscore_size) {
+      ggplot2::scale_size_continuous(name = "final_score", range = c(1.5, 6), limits = c(0, 1))
+    } else {
+      NULL
+    }
 
     p <- ggplot2::ggplot(
       plot_df,
@@ -502,17 +545,11 @@ Go_lollipopPlot <- function(project,
         linewidth = 0.7,
         alpha = 0.8
       ) +
-      if (use_fscore_size) {
-        ggplot2::geom_point(ggplot2::aes(shape = dirPadj, size = final_score))
-      } else {
-        ggplot2::geom_point(ggplot2::aes(shape = dirPadj), size = 3)
-      } +
+      point_layer +
       ggplot2::geom_vline(xintercept = 0, linetype = "dotted", linewidth = 0.7, color = "grey40") +
       ggplot2::scale_color_manual(values = dircolors, labels = legend.labs, drop = FALSE) +
       ggplot2::scale_shape_manual(values = padj_shape, drop = FALSE) +
-      if (use_fscore_size) {
-        ggplot2::scale_size_continuous(name = "final_score", range = c(1.5, 6), limits = c(0, 1))
-      } else NULL +
+      size_layer +
       ggplot2::scale_y_discrete(labels = stats::setNames(as.character(plot_df$feature_label), as.character(plot_df$feature_id))) +
       ggplot2::labs(
         title = sprintf("%s, %s (%s)", plot_df$mvar[1], plot_df$title_tool[1], sig_shape_label),
@@ -530,19 +567,19 @@ Go_lollipopPlot <- function(project,
         axis.text.y = ggplot2::element_text(face = "italic"),
         panel.grid.major.y = ggplot2::element_blank(),
         panel.grid.minor = ggplot2::element_blank(),
-        legend.position = "bottom",
-        legend.justification = c(0, 0),
+        legend.position = "right",
+        legend.justification = c(0, 0.5),
         legend.box.just = "left",
         legend.box = "vertical",
         legend.margin = ggplot2::margin(0, 0, 0, 0),
-        legend.box.margin = ggplot2::margin(0, 0, 0, -45),
+        legend.box.margin = ggplot2::margin(0, 0, 0, 8),
         legend.key = ggplot2::element_blank(),
         plot.margin = ggplot2::margin(5.5, 5.5, 5.5, 2)
       ) +
       ggplot2::guides(
-        color = ggplot2::guide_legend(nrow = 1, byrow = TRUE, title.position = "top"),
-        shape = ggplot2::guide_legend(nrow = 1, byrow = TRUE, title.position = "left"),
-        size  = if (use_fscore_size) ggplot2::guide_legend(nrow = 1, byrow = TRUE, title.position = "left") else NULL
+        color = ggplot2::guide_legend(ncol = 1, byrow = TRUE, title.position = "top"),
+        shape = ggplot2::guide_legend(ncol = 1, byrow = TRUE, title.position = "top"),
+        size  = if (use_fscore_size) ggplot2::guide_legend(ncol = 1, byrow = TRUE, title.position = "top") else NULL
       )
 
     pdf_file <- sprintf(
@@ -557,7 +594,7 @@ Go_lollipopPlot <- function(project,
     )
 
     max_lbl <- max(nchar(as.character(plot_df$feature_label)), na.rm = TRUE)
-    plot_height <- max(3.8, min(8.5, 1.3 + 0.12 * nrow(plot_df) + 0.005 * max_lbl))
+    plot_height <- max(4.2, min(13.5, 1.6 + 0.22 * nrow(plot_df) + 0.006 * max_lbl))
     plot_grob <- fix_panel_width_grob(p, width)
     grob_width <- tryCatch(grid::convertWidth(sum(plot_grob$widths), "in", valueOnly = TRUE), error = function(e) NA_real_)
     if (!is.finite(grob_width)) {

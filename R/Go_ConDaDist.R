@@ -71,9 +71,9 @@
 #' @param continue_on_error Keep running remaining pairwise comparisons even if
 #'   one comparison fails.
 #'
-#' @return Project output root directory path (for example
-#'   `DemoProj_YYMMDD`). All tables, bridge CSV files, QC plots, and volcano
-#'   outputs are written beneath this directory.
+#' @return Volcano/lollipop bridge table directory path. Single-method mode
+#'   returns `table/ConDaDist_plot_single_Tab`; consensus mode returns
+#'   `table/ConDaDist_plot_Tab`.
 #'
 #' @examples
 #' \dontrun{
@@ -230,7 +230,7 @@ Go_RunConDaDistMain <- function(
       group_2 = group_2,
       name = name
     )
-    return(invisible(normalizePath(output_layout$main, winslash = "/", mustWork = FALSE)))
+    return(invisible(normalizePath(output_layout$conda_dist_single_volcano, winslash = "/", mustWork = FALSE)))
   }
 
   output_layout <- Go_path(project = project, pdf = "no", table = "yes")
@@ -302,13 +302,18 @@ Go_RunConDaDistMain <- function(
   names(comparison_results) <- paste0(comparison_plan$group_1, ".vs.", comparison_plan$group_2)
 
   method_dir <- dirname(comparison_results[[1]]$comparison_dir)
+  return_dir <- if (length(methods) == 1 && length(distances) == 0) {
+    output_layout$conda_dist_single_volcano
+  } else {
+    output_layout$conda_dist_volcano
+  }
 
   if (length(comparison_results) == 1) {
     single <- comparison_results[[1]]
     single$project <- project
     single$output_root_dir <- root_output_dir
     single$output_table_dir <- output_layout$table
-    single$return_dir <- normalizePath(root_output_dir, winslash = "/", mustWork = FALSE)
+    single$return_dir <- normalizePath(return_dir, winslash = "/", mustWork = FALSE)
     return(invisible(single))
   }
 
@@ -317,7 +322,7 @@ Go_RunConDaDistMain <- function(
     output_root_dir = root_output_dir,
     output_table_dir = output_layout$table,
     comparisons = comparison_results,
-    return_dir = normalizePath(root_output_dir, winslash = "/", mustWork = FALSE)
+    return_dir = normalizePath(return_dir, winslash = "/", mustWork = FALSE)
   ))
 }
 
