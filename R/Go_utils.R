@@ -379,7 +379,7 @@ Go_PrepareMethodInput <- function(prepared, method, control = list()) {
       stats::as.formula(control$phi_formula)
     }
     out$phi_null_formula <- if (identical(control$phi_null_formula, "auto")) {
-      out$null_formula
+      out$phi_formula
     } else {
       stats::as.formula(control$phi_null_formula)
     }
