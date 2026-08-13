@@ -981,9 +981,9 @@ Go_path <- function(project, pdf = "yes", table = "yes", path = NULL) {
 
 Go_FindGoToolsVolcanoPath <- function() {
   candidates <- c(
-    file.path(getwd(), "R_source", "Gotools", "R", "Go_volcanoPlot_v1.R"),
-    file.path(getwd(), "..", "R_source", "Gotools", "R", "Go_volcanoPlot_v1.R"),
-    "/Users/heekukpark/Dropbox/04_scripts/R_source/Gotools/R/Go_volcanoPlot_v1.R"
+    file.path(getwd(), "..", "Gotools", "R", "Go_volcanoPlot_v1.R"),
+    file.path(getwd(), "..", "..", "Gotools", "R", "Go_volcanoPlot_v1.R"),
+    "/Users/heekukpark/Documents/Myscripts/Gotools/R/Go_volcanoPlot_v1.R"
   )
   candidates <- unique(normalizePath(candidates, winslash = "/", mustWork = FALSE))
   hit <- candidates[file.exists(candidates)][1]
@@ -995,9 +995,9 @@ Go_FindGoToolsVolcanoPath <- function() {
 
 Go_FindGoToolsMaaslinPath <- function() {
   candidates <- c(
-    file.path(getwd(), "R_source", "Gotools", "R", "Go_Maaslin2_V2.R"),
-    file.path(getwd(), "..", "R_source", "Gotools", "R", "Go_Maaslin2_V2.R"),
-    "/Users/heekukpark/Dropbox/04_scripts/R_source/Gotools/R/Go_Maaslin2_V2.R"
+    file.path(getwd(), "..", "Gotools", "R", "Go_Maaslin2_V2.R"),
+    file.path(getwd(), "..", "..", "Gotools", "R", "Go_Maaslin2_V2.R"),
+    "/Users/heekukpark/Documents/Myscripts/Gotools/R/Go_Maaslin2_V2.R"
   )
   candidates <- unique(normalizePath(candidates, winslash = "/", mustWork = FALSE))
   hit <- candidates[file.exists(candidates)][1]
