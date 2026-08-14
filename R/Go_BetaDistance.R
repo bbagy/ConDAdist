@@ -176,25 +176,34 @@ Go_Dist_jsd <- function(feature_table, phy_tree = NULL) {
   sample_mat[!is.finite(sample_mat)] <- 0
 
   n <- nrow(sample_mat)
-  out <- matrix(0, nrow = n, ncol = n, dimnames = list(rownames(sample_mat), rownames(sample_mat)))
-
-  kl_div <- function(p, q) {
-    keep <- p > 0 & q > 0
-    if (!any(keep)) return(0)
-    sum(p[keep] * log(p[keep] / q[keep]))
+  P <- sample_mat
+  out <- matrix(0, nrow = n, ncol = n, dimnames = list(rownames(P), rownames(P)))
+  if (n < 2) {
+    return(stats::as.dist(out))
   }
 
-  for (i in seq_len(n)) {
-    if (i >= n) next
-    for (j in seq.int(i + 1L, n)) {
-      p <- sample_mat[i, ]
-      q <- sample_mat[j, ]
-      m <- 0.5 * (p + q)
-      jsd <- 0.5 * kl_div(p, m) + 0.5 * kl_div(q, m)
-      d <- sqrt(max(jsd, 0))
-      out[i, j] <- d
-      out[j, i] <- d
-    }
+  ## JSD(p,q) = H((p+q)/2) - 0.5*H(p) - 0.5*H(q), with Shannon entropy
+  ## H(x) = -sum(x*log(x)). Mathematically equivalent to the KL-based
+  ## definition but lets each row of the i-vs-rest comparison be computed
+  ## in one vectorized pass instead of a per-sample-pair R loop -- this
+  ## distance gets recomputed thousands of times by the LOO/permutation
+  ## machinery in Go_BetaContribution(), so the per-call cost compounds
+  ## heavily (unlike bray/jaccard, which reuse compiled vegan::vegdist()).
+  ## All entries of P are guaranteed > 0 by the +0.5 pseudocount above, so
+  ## no zero-guard is needed here (verified: identical to the old
+  ## zero-guarded KL-divergence loop to floating-point precision).
+  H <- function(mat) -rowSums(mat * log(mat))
+  Hp <- H(P)
+
+  for (i in seq_len(n - 1L)) {
+    idx <- (i + 1L):n
+    Pi <- matrix(P[i, ], nrow = length(idx), ncol = ncol(P), byrow = TRUE)
+    M  <- 0.5 * (Pi + P[idx, , drop = FALSE])
+    Hm <- H(M)
+    jsd <- Hm - 0.5 * Hp[i] - 0.5 * Hp[idx]
+    d <- sqrt(pmax(jsd, 0))
+    out[i, idx] <- d
+    out[idx, i] <- d
   }
 
   stats::as.dist(out)
