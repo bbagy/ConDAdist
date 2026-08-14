@@ -640,7 +640,6 @@ Go_RunSingleDAAttempt <- function(
       corncob_key <- if (identical(methods[[1]], "corncob")) "corncob_wald" else methods[[1]]
       method_controls <- method_controls %||% list()
       method_controls[[corncob_key]] <- utils::modifyList(
-        method_controls[[corncob_key]] %||% list(),
         list(
           min_prevalence = 0.05,
           min_total_count = 10,
@@ -651,7 +650,8 @@ Go_RunSingleDAAttempt <- function(
           retry_legacy_filter_cutoff = 0.001,
           retry_phi_formula = "~ 1",
           retry_phi_null_formula = "~ 1"
-        )
+        ),
+        method_controls[[corncob_key]] %||% list()
       )
       message("[ConDA] Single ", corncob_key, " mode: applying stability-focused filtering and retry settings.")
     }
