@@ -900,12 +900,12 @@ Go_MethodSignature <- function(methods) {
   methods <- unique(tolower(as.character(methods)))
   methods[methods == "maaslin"] <- "maaslin2"
   methods[methods == "corncob"] <- "corncob_lrt"
-  ordered_methods <- c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  ordered_methods <- c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob_wald", "corncob_lrt")
   methods <- ordered_methods[ordered_methods %in% methods]
   if (length(methods) <= 1) {
     return(methods[1] %||% "condadist")
   }
-  map <- c(deseq2 = "D", aldex2 = "A", ancombc2 = "N", corncob_wald = "W", corncob_lrt = "L")
+  map <- c(deseq2 = "D", aldex2 = "A", ancombc2 = "N", maaslin2 = "M", corncob_wald = "W", corncob_lrt = "L")
   paste0(unname(map[methods]), collapse = "")
 }
 

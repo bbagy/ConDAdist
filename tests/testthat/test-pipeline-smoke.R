@@ -38,13 +38,21 @@ make_da_table <- function(n = 10, seed = 1) {
 }
 
 make_da_consensus_v2 <- function(n = 6) {
+  ## combined_p/combined_q are what Go_FinalScore() actually reads;
+  ## cauchy_combined_p/q are the V1_JSD compatibility aliases that the real
+  ## Go_DAConsensus() output always mirrors from them (Go_Consensus.R:182-183)
+  ## -- kept identical here so this fixture matches real pipeline output shape.
+  combined_p_vals <- c(0.01, 0.04, 0.6, 0.001, 0.03, 0.9)[1:n]
+  combined_q_vals <- c(0.03, 0.06, 0.7, 0.006, 0.05, 0.95)[1:n]
   data.frame(
     feature_id              = paste0("t", 1:n),
     n_methods_run           = 2,
     n_methods_significant   = c(2, 1, 0, 2, 1, 0)[1:n],
     DA_support_score        = c(1, 0.5, 0, 1, 0.5, 0)[1:n],
-    cauchy_combined_p       = c(0.01, 0.04, 0.6, 0.001, 0.03, 0.9)[1:n],
-    cauchy_combined_q       = c(0.03, 0.06, 0.7, 0.006, 0.05, 0.95)[1:n],
+    combined_p               = combined_p_vals,
+    combined_q               = combined_q_vals,
+    cauchy_combined_p       = combined_p_vals,
+    cauchy_combined_q       = combined_q_vals,
     is_combined_significant = c(TRUE, FALSE, FALSE, TRUE, FALSE, FALSE)[1:n],
     direction_consistency   = c(1, 1, 0, 1, 1, 0)[1:n],
     effect_consistency      = c(0.9, 0.8, 0.5, 0.95, 0.7, 0.4)[1:n],
@@ -116,14 +124,18 @@ test_that("Go_MethodSignature single method returns full name", {
   expect_equal(Go_MethodSignature("aldex2"),   "aldex2")
   expect_equal(Go_MethodSignature("ancombc2"), "ancombc2")
   expect_equal(Go_MethodSignature("maaslin2"), "maaslin2")
-  expect_equal(Go_MethodSignature("corncob"),  "corncob")
+  # bare "corncob" is an intentional alias for corncob_lrt (matches
+  # Go_DA_corncob() in Go_DA_adapters.R, and Go_ResolveMethods() below) --
+  # the resolved name is what should come back, not the literal input.
+  expect_equal(Go_MethodSignature("corncob"),  "corncob_lrt")
 })
 
-test_that("Go_MethodSignature multi-method uses fixed-order initials DANMC", {
-  expect_equal(Go_MethodSignature(c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob")), "DANMC")
-  expect_equal(Go_MethodSignature(c("deseq2", "corncob")), "DC")
+test_that("Go_MethodSignature multi-method uses fixed-order initials DANML", {
+  # "corncob" resolves to corncob_lrt (letter L) -- see note above.
+  expect_equal(Go_MethodSignature(c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob")), "DANML")
+  expect_equal(Go_MethodSignature(c("deseq2", "corncob")), "DL")
   expect_equal(Go_MethodSignature(c("aldex2", "ancombc2")), "AN")
-  expect_equal(Go_MethodSignature(c("corncob", "deseq2")), "DC")
+  expect_equal(Go_MethodSignature(c("corncob", "deseq2")), "DL")
 })
 
 test_that("Go_MethodSignature normalises maaslin alias", {
@@ -134,7 +146,9 @@ test_that("Go_MethodSignature normalises maaslin alias", {
 
 test_that("Go_ResolveMethods deduplicates and lowercases", {
   expect_equal(Go_ResolveMethods(c("DESeq2", "deseq2")), "deseq2")
-  expect_equal(Go_ResolveMethods(c("ALDEX2", "corncob")), c("aldex2", "corncob"))
+  # "corncob" resolves to corncob_lrt -- intentional alias, see
+  # Go_MethodSignature test above.
+  expect_equal(Go_ResolveMethods(c("ALDEX2", "corncob")), c("aldex2", "corncob_lrt"))
 })
 
 test_that("Go_ResolveMethods normalises maaslin alias", {
@@ -492,6 +506,9 @@ test_that("Go_WeightSensitivity feature mapping is correct (not sorted order)", 
   # If feature mapping were wrong, t1's rank would be assigned to a different feature.
   da_consensus <- make_da_consensus_v2(4)
   # Force t1 to stand out: highest cauchy signal, highest combined_effect_rank
+  # (combined_q is what Go_FinalScore() actually reads; cauchy_combined_q is
+  # kept in sync since the real pipeline always mirrors the two)
+  da_consensus$combined_q[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$cauchy_combined_q[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$is_combined_significant[da_consensus$feature_id == "t1"] <- TRUE
   da_consensus$combined_effect_rank[da_consensus$feature_id == "t1"] <- 1.0
