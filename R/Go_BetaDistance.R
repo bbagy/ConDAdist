@@ -310,6 +310,20 @@ Go_BetaPermutationPvalue <- function(ft, group_factor, dist_matrices,
   # null_mat: permutation × feature
   null_mat <- matrix(NA_real_, nrow = n_permutations, ncol = n_features)
 
+  ## Scoped seeding: same inputs must give the same beta_perm_p/q on every
+  ## run (reproducibility), without changing the caller's own RNG stream --
+  ## save/restore .Random.seed around the fixed internal seed.
+  has_seed <- exists(".Random.seed", envir = .GlobalEnv)
+  old_seed <- if (has_seed) get(".Random.seed", envir = .GlobalEnv) else NULL
+  on.exit({
+    if (has_seed) {
+      assign(".Random.seed", old_seed, envir = .GlobalEnv)
+    } else if (exists(".Random.seed", envir = .GlobalEnv)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  }, add = TRUE)
+  set.seed(1L)
+
   for (perm_i in seq_len(n_permutations)) {
     perm_group <- sample(group_factor)
 
