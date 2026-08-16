@@ -1728,7 +1728,7 @@ Go_LeaveOneTaxonOutScore <- function(feature_table, target_feature, group_factor
   (full_score_sum - loo_score) / valid_n
 }
 
-Go_NormalizeVector <- function(x) {
+Go_NormalizeVector <- function(x, clip_probs = c(0.05, 0.95)) {
   n <- length(x)
   if (n == 0) return(x)
   finite_idx <- is.finite(x)
@@ -1736,18 +1736,30 @@ Go_NormalizeVector <- function(x) {
   if (n_finite == 0) return(rep(0, n))
   result <- rep(0, n)
   vals <- x[finite_idx]
-  rng <- range(vals)
-  ## min-max scaling, not percentile rank -- rank(x)/n forces a uniform
-  ## distribution regardless of x's true spread, so any downstream
-  ## threshold (e.g. >= 0.5) would always split the data ~50/50 by
-  ## construction, independent of whether the underlying values actually
-  ## show a real high/low separation (found via Structure_driver counts
-  ## scaling with dataset size instead of real signal -- see docs/
-  ## 20260813_stage3_nearing38_pilot_GAB.md, section D).
-  result[finite_idx] <- if (rng[2] > rng[1]) {
-    (vals - rng[1]) / (rng[2] - rng[1])
+  ## Robust min-max: scale relative to the 5th-95th percentile range, then
+  ## clamp to [0,1] -- not plain rank(x)/n (percentile rank), and not
+  ## plain min-max either. Two artifacts were found in sequence:
+  ##  1. percentile rank forces a uniform 0-1 distribution regardless of
+  ##     x's true spread, so any downstream >=0.5 threshold always split
+  ##     the data ~50/50 by construction (Structure_driver counts scaled
+  ##     with dataset size, not real signal -- docs/20260813_stage3_...,
+  ##     section D/L).
+  ##  2. plain min-max, tried as the fix, turned out to be wrecked by
+  ##     heavy-tailed inputs (e.g. -log10(q): one feature at q=1e-108 next
+  ##     to a median significant feature at q=1e-7 crushes that median
+  ##     feature's score to ~0.07, not "clearly significant" -- verified
+  ##     on cdi_schubert, where this collapsed Core_consensus from 1164 to
+  ##     7 features across 18 datasets, section L continuation). Clipping
+  ##     to the 5th-95th percentile before scaling keeps a handful of
+  ##     extreme values from setting the whole scale, while still letting
+  ##     genuine 0-vs-100%-flat inputs collapse toward a single value
+  ##     rather than being forced apart.
+  bounds <- stats::quantile(vals, probs = clip_probs, na.rm = TRUE, names = FALSE, type = 7)
+  lo <- bounds[1]; hi <- bounds[2]
+  result[finite_idx] <- if (hi > lo) {
+    pmin(pmax((vals - lo) / (hi - lo), 0), 1)
   } else {
-    rep(0, n_finite)  # no variation -- nothing stands out, not "half do"
+    rep(0, n_finite)  # no variation in the bulk -- nothing stands out
   }
   result
 }
