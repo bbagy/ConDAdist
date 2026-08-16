@@ -1735,7 +1735,20 @@ Go_NormalizeVector <- function(x) {
   n_finite <- sum(finite_idx)
   if (n_finite == 0) return(rep(0, n))
   result <- rep(0, n)
-  result[finite_idx] <- rank(x[finite_idx], ties.method = "average") / n_finite
+  vals <- x[finite_idx]
+  rng <- range(vals)
+  ## min-max scaling, not percentile rank -- rank(x)/n forces a uniform
+  ## distribution regardless of x's true spread, so any downstream
+  ## threshold (e.g. >= 0.5) would always split the data ~50/50 by
+  ## construction, independent of whether the underlying values actually
+  ## show a real high/low separation (found via Structure_driver counts
+  ## scaling with dataset size instead of real signal -- see docs/
+  ## 20260813_stage3_nearing38_pilot_GAB.md, section D).
+  result[finite_idx] <- if (rng[2] > rng[1]) {
+    (vals - rng[1]) / (rng[2] - rng[1])
+  } else {
+    rep(0, n_finite)  # no variation -- nothing stands out, not "half do"
+  }
   result
 }
 
