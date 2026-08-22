@@ -2,10 +2,24 @@
 % Please edit documentation in R/Go_Consensus.R
 \name{Go_DAConsensus}
 \alias{Go_DAConsensus}
-\title{Summarize DA agreement across methods}
+\title{Summarize DA agreement across methods (V5)}
 \usage{
-Go_DAConsensus(da_table, alpha = 0.05)
+Go_DAConsensus(
+  da_table,
+  alpha = 0.05,
+  p_combine = c("family_partial_conjunction", "adaptive_cauchy", "fisher", "cauchy"),
+  planned_methods = unique(da_table$method)
+)
+}
+\arguments{
+\item{da_table}{Standardized long-format DA result table.}
+
+\item{alpha}{BH-adjusted significance threshold.}
+
+\item{p_combine}{P-value combination rule.}
+
+\item{planned_methods}{Full method panel planned for the run.}
 }
 \description{
-Summarize DA agreement across methods
+Summarize DA agreement across methods (V5)
 }

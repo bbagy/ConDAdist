@@ -14,15 +14,17 @@ Go_ConDaDist(
   covariates = NULL,
   name = NULL,
   random_effects = NULL,
-  methods = c("ancombc2", "aldex2", "maaslin2", "corncob", "deseq2"),
-  distances = c("bray", "jaccard", "aitchison"),
+  methods = NULL,
+  distances = NULL,
   method_controls = NULL,
   prevalence = 0.1,
   abundance = 1e-04,
   alpha = 0.05,
   n_permutations = 999L,
   n_beta_permutations = 99L,
-  weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+  weights = NULL,
+  p_combine = NULL,
+  preset = c("broad_panel", "recommended_stagex", "custom"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
@@ -56,11 +58,11 @@ native \code{MaAsLin2} single-mode runs and \code{ANCOMBC2} mixed-effects models
 \item{methods}{Differential abundance methods to run. Defaults to all
 supported methods. Available options:
 \itemize{
-\item \code{"ancombc2"} — ANCOM-BC2 (log-linear, bias-corrected)
-\item \code{"aldex2"}   — ALDEx2 (t-test without covariates; GLM with covariates)
-\item \code{"maaslin2"} — MaAsLin2 (linear mixed model, TSS+LOG)
-\item \code{"corncob"}  — corncob (beta-binomial, handles overdispersion)
-\item \code{"deseq2"}   — DESeq2 (negative binomial, poscounts normalization)
+\item \code{"deseq2"}       — DESeq2 (negative binomial, poscounts normalization)
+\item \code{"aldex2"}       — ALDEx2
+\item \code{"ancombc2"}     — ANCOM-BC2 (log-linear, bias-corrected)
+\item \code{"corncob_lrt"}  — corncob likelihood-ratio test
+\item \code{"corncob_wald"} — corncob Wald test (paired with LRT as one family)
 }}
 
 \item{distances}{Beta-diversity distances to compute. At most 3 distances
@@ -69,12 +71,12 @@ DA-only mode. Available options:
 \itemize{
 \item \code{"bray"}             — Bray-Curtis dissimilarity (recommended default)
 \item \code{"jaccard"}          — Jaccard distance (presence/absence)
-\item \code{"aitchison"}        — Aitchison distance (CLR-transformed Euclidean)
+\item \code{"jsd"}              — Jensen-Shannon distance
 \item \code{"unifrac"}          — Unweighted UniFrac (requires phylogenetic tree)
 \item \code{"weighted_unifrac"} — Weighted UniFrac (requires phylogenetic tree)
 }
-Recommended without tree: \code{c("bray", "jaccard", "aitchison")}.
-Recommended with tree: \code{c("bray", "aitchison", "unifrac")}.}
+Recommended without tree: \code{c("bray", "jaccard", "jsd")}.
+Recommended with tree: \code{c("bray", "jsd", "unifrac")}.}
 
 \item{method_controls}{Optional named list of per-method control lists.}
 
@@ -92,6 +94,23 @@ filtering.}
 
 \item{weights}{Named numeric vector controlling final score weights.}
 
+\item{p_combine}{DA p-value combination rule used in the consensus layer.
+One of \code{"family_partial_conjunction"} (default; V5 all-but-one
+method-family agreement), \code{"adaptive_cauchy"} (legacy,
+exploratory only), or \code{"fisher"}.
+When exactly one method is requested and this argument is omitted, CDD
+retains the prior V2 single-method skeleton because no cross-method
+combination is performed.
+\code{"cauchy"} is accepted for backward compatibility but is deprecated
+and mapped to \code{"adaptive_cauchy"}.}
+
+\item{preset}{Configuration contract. \code{"broad_panel"} is the conservative
+general default (five tests, no distance); \code{"recommended_stagex"} is
+the frozen Stage-X benchmark selection (four tests plus Bray, JSD, and
+Jaccard); \code{"custom"} accepts explicit component arguments and is not
+independently calibrated. Supplying a component without \code{preset}
+automatically selects \code{custom} for backward compatibility.}
+
 \item{qc_plot}{Generate QC plots automatically after analysis.
 Volcano bridge tables and Gotools volcano plots are generated automatically.}
 
@@ -100,11 +119,14 @@ all pairwise comparisons across ordered \code{group_var} levels.}
 
 \item{continue_on_error}{Keep running remaining pairwise comparisons even if
 one comparison fails.}
+
+\item{filter_scope}{Whether prevalence and abundance filters are computed on
+each pairwise subset (\code{"pairwise"}) or on the full aligned data (\code{"global"}).}
 }
 \value{
-Project output root directory path (for example
-\code{DemoProj_YYMMDD}). All tables, bridge CSV files, QC plots, and volcano
-outputs are written beneath this directory.
+Volcano/lollipop bridge table directory path. Single-method mode
+returns \code{table/ConDaDist_plot_single_Tab}; consensus mode returns
+\code{table/ConDaDist_plot_Tab}.
 }
 \description{
 \code{Go_ConDaDist()} is the main orchestration entrypoint for \code{ConDA-dist}.
@@ -147,8 +169,8 @@ res_dir <- Go_ConDaDist(
   group_1 = "Control",
   group_2 = "GLP-2",
   project = "DemoProj",
-  methods = c("ancombc2", "aldex2", "deseq2"),
-  distances = c("bray", "jaccard", "aitchison")
+  methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+  distances = c("bray", "jaccard", "jsd")
 )
 
 # native MaAsLin2 single-mode run

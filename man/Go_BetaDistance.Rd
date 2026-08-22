@@ -10,7 +10,7 @@ Go_BetaDistance(
   group_var,
   group_1,
   group_2,
-  distances = c("bray", "jaccard", "aitchison"),
+  distances = c("bray", "jaccard", "jsd"),
   phy_tree = NULL,
   n_permutations = 999L
 )

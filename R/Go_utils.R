@@ -308,13 +308,91 @@ Go_ResolvePCombine <- function(p_combine) {
   # breaking older scripts that still pass p_combine = "cauchy".
   p <- match.arg(
     arg = p_combine,
-    choices = c("adaptive_cauchy", "fisher", "cauchy")
+    choices = c("family_partial_conjunction", "adaptive_cauchy", "fisher", "cauchy")
   )
   if (identical(p, "cauchy")) {
     warning("p_combine = \"cauchy\" is deprecated; using \"adaptive_cauchy\" instead.")
     p <- "adaptive_cauchy"
   }
   p
+}
+
+Go_DefaultPCombineForMethods <- function(methods) {
+  resolved <- Go_ResolveMethods(methods)
+  if (length(resolved) == 1L) {
+    # A one-method run has nothing to combine. Retain the V2 skeleton so
+    # single-method and one-method-plus-beta behavior stays backward compatible.
+    return("adaptive_cauchy")
+  }
+  "family_partial_conjunction"
+}
+
+Go_ValidateFamilyPartialConjunctionPanel <- function(methods, p_combine) {
+  if (!identical(p_combine, "family_partial_conjunction")) {
+    return(invisible(TRUE))
+  }
+  resolved <- Go_ResolveMethods(methods)
+  allowed <- Go_AllDAMethods()
+  unsupported <- setdiff(resolved, allowed)
+  if (length(unsupported) > 0L) {
+    stop("Family partial conjunction does not support: ",
+         paste(unsupported, collapse = ", "), ".")
+  }
+  invisible(TRUE)
+}
+
+Go_CDDPresetDefinitions <- function() {
+  standard_weights <- c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15)
+  list(
+    broad_panel = list(
+      methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+      distances = NULL,
+      weights = standard_weights,
+      p_combine = "family_partial_conjunction",
+      calibration = "conservative_general_default"
+    ),
+    recommended_stagex = list(
+      methods = c("aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+      distances = c("bray", "jsd", "jaccard"),
+      weights = standard_weights,
+      p_combine = "family_partial_conjunction",
+      calibration = "stagex_benchmark_selected"
+    )
+  )
+}
+
+Go_ResolveCDDPreset <- function(preset, methods = NULL, distances = NULL,
+                                weights = NULL, p_combine = NULL,
+                                supplied = list()) {
+  preset <- match.arg(preset, c("broad_panel", "recommended_stagex", "custom"))
+  definitions <- Go_CDDPresetDefinitions()
+  component_names <- c("methods", "distances", "weights", "p_combine")
+  explicitly_supplied <- component_names[vapply(
+    component_names, function(x) isTRUE(supplied[[x]]), logical(1)
+  )]
+
+  if (!identical(preset, "custom")) {
+    if (length(explicitly_supplied) > 0L) {
+      stop("Preset `", preset, "` owns its configuration; remove explicit: ",
+           paste(explicitly_supplied, collapse = ", "),
+           ", or use preset = \"custom\".")
+    }
+    config <- definitions[[preset]]
+  } else {
+    config <- list(
+      methods = methods %||% Go_AllDAMethods(),
+      distances = distances,
+      weights = weights %||% c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+      p_combine = p_combine,
+      calibration = "custom_not_independently_calibrated"
+    )
+    if (is.null(config$p_combine)) {
+      config$p_combine <- Go_DefaultPCombineForMethods(config$methods)
+    }
+  }
+  config$preset <- preset
+  config$engine_version <- "V5"
+  config
 }
 
 Go_ResolveV4Mode <- function(p_combine) {
@@ -782,7 +860,7 @@ Go_NormalizeDistanceName <- function(x) {
 }
 
 Go_AllDAMethods <- function() {
-  c("deseq2", "aldex2", "ancombc2", "corncob_lrt")
+  c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
 }
 
 Go_AllDistanceMetrics <- function() {

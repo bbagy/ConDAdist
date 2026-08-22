@@ -12,8 +12,14 @@ Go_BetaContribution(
   group_2,
   beta_distances,
   phy_tree = NULL,
-  n_beta_permutations = 99L
+  n_beta_permutations = 99L,
+  method = c("loo_only", "simper_loo")
 )
+}
+\arguments{
+\item{method}{Contribution formula. \code{"loo_only"} (default, V2_JSD/V4 behaviour)
+uses only the leave-one-taxon-out separation delta. \code{"simper_loo"} (V1_JSD
+behaviour) averages SIMPER contribution with the LOO delta.}
 }
 \description{
 Estimate feature-level beta contributions

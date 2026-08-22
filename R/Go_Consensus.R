@@ -1,8 +1,8 @@
 # ==============================================================================
-# Go_Consensus.R  — V4
+# Go_Consensus.R  — internal engine V5
 #
 # Unified JSD-line consensus core:
-#   - configurable p-value combination: fisher / cauchy / adaptive_cauchy
+#   - configurable p-value combination, including family partial conjunction
 #   - combined_effect_rank retained from V2_JSD
 #   - effect_consistency returns 0 (not 1) when no methods are significant
 #   - legacy cauchy_* columns retained for downstream compatibility
@@ -74,6 +74,105 @@ Go_CombinePValuesAdaptiveCauchy <- function(p_values, weights = NULL, info_thres
 }
 
 # ------------------------------------------------------------------------------
+# Go_CombinePValuesFamilyPartialConjunction
+#
+# V5 configurable-panel rule:
+#   1. Collapse related corncob Wald/LRT tests with Bonferroni min-p.
+#   2. Treat other planned methods as separate model families.
+#   3. Require all-but-one family support via partial conjunction.
+#
+# Missing/invalid planned tests are assigned p = 1 so the planned denominator
+# remains fixed across features within a run.
+# ------------------------------------------------------------------------------
+Go_NormalizeFamilyMethod <- function(methods) {
+  key <- tolower(gsub("[^[:alnum:]]+", "", as.character(methods)))
+  aliases <- c(
+    deseq2 = "deseq2",
+    aldex2 = "aldex2",
+    ancombc2 = "ancombc2",
+    corncobwald = "corncob_wald",
+    corncoblrt = "corncob_lrt"
+  )
+  out <- unname(aliases[key])
+  out[is.na(out)] <- key[is.na(out)]
+  out
+}
+
+Go_FamilyPartialConjunctionDetails <- function(p_values, methods,
+                                                planned_methods = methods) {
+  if (length(p_values) != length(methods)) {
+    stop("`p_values` and `methods` must have the same length.")
+  }
+
+  method_key <- Go_NormalizeFamilyMethod(methods)
+  planned_key <- unique(Go_NormalizeFamilyMethod(planned_methods))
+  supported <- c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  if (length(planned_key) == 0L || any(!planned_key %in% supported)) {
+    stop("`planned_methods` must contain supported DA methods.")
+  }
+  p_values <- suppressWarnings(as.numeric(p_values))
+  valid <- is.finite(p_values) & p_values >= 0 & p_values <= 1
+
+  extract_slot <- function(method_name) {
+    idx <- which(method_key == method_name)
+    if (length(idx) > 1L) {
+      stop("Duplicate method rows for family partial conjunction: ", method_name)
+    }
+    if (length(idx) == 0L || !valid[idx]) {
+      return(list(p = 1, estimable = FALSE))
+    }
+    list(p = p_values[idx], estimable = TRUE)
+  }
+
+  planned_families <- unique(ifelse(grepl("^corncob_", planned_key), "corncob", planned_key))
+  family_p <- setNames(rep(1, length(planned_families)), planned_families)
+  family_estimable <- setNames(rep(FALSE, length(planned_families)), planned_families)
+  n_corncob_tests_estimable <- 0L
+  for (family in planned_families) {
+    members <- if (identical(family, "corncob")) {
+      intersect(c("corncob_wald", "corncob_lrt"), planned_key)
+    } else {
+      family
+    }
+    slots <- lapply(members, extract_slot)
+    member_p <- vapply(slots, `[[`, numeric(1), "p")
+    member_estimable <- vapply(slots, `[[`, logical(1), "estimable")
+    family_p[[family]] <- min(1, length(members) * min(member_p))
+    family_estimable[[family]] <- any(member_estimable)
+    if (identical(family, "corncob")) {
+      n_corncob_tests_estimable <- sum(member_estimable)
+    }
+  }
+  n_families <- length(family_p)
+  h <- max(1L, n_families - 1L)
+  combined_p <- min(1, (n_families - h + 1L) * sort(family_p)[[h]])
+
+  diagnostic_family_p <- c(deseq2 = 1, aldex2 = 1, ancombc2 = 1, corncob = 1)
+  diagnostic_family_p[names(family_p)] <- family_p
+
+  list(
+    combined_p = combined_p,
+    family_p = diagnostic_family_p,
+    n_families_planned = n_families,
+    n_families_estimable = sum(family_estimable),
+    partial_conjunction_h = h,
+    n_corncob_tests_estimable = n_corncob_tests_estimable
+  )
+}
+
+#' Combine DA method families using the V5 partial-conjunction rule
+#' @param p_values Numeric p-values.
+#' @param methods Method identifiers paired with `p_values`.
+#' @param planned_methods Full method panel planned for the run. Missing planned
+#'   tests are retained conservatively with p = 1.
+#' @return A single raw partial-conjunction p-value.
+#' @export
+Go_CombinePValuesFamilyPartialConjunction <- function(p_values, methods,
+                                                       planned_methods = methods) {
+  Go_FamilyPartialConjunctionDetails(p_values, methods, planned_methods)$combined_p
+}
+
+# ------------------------------------------------------------------------------
 # Go_CombinedEffectRank
 #   Rank-normalise each method's effect_size to [0,1] within the feature set,
 #   then average across methods.
@@ -109,16 +208,23 @@ Go_CombinedEffectRank <- function(da_table, feature_ids) {
 }
 
 # ------------------------------------------------------------------------------
-# Go_DAConsensus  (V4)
+# Go_DAConsensus  (V5)
 #
 # In V4, the consensus "skeleton" is derived from p_combine:
-#   - fisher          => V1_JSD-style skeleton
-#   - adaptive_cauchy => V2_JSD-style skeleton
+#   - fisher                     => V1_JSD-style skeleton
+#   - adaptive_cauchy            => V2_JSD-style skeleton
+#   - family_partial_conjunction => V2_JSD-style skeleton
 # ------------------------------------------------------------------------------
-#' Summarize DA agreement across methods (V4)
+#' Summarize DA agreement across methods (V5)
+#' @param da_table Standardized long-format DA result table.
+#' @param alpha BH-adjusted significance threshold.
+#' @param p_combine P-value combination rule.
+#' @param planned_methods Full method panel planned for the run.
 Go_DAConsensus <- function(da_table,
                            alpha = 0.05,
-                           p_combine = c("adaptive_cauchy", "fisher", "cauchy")) {
+                           p_combine = c("family_partial_conjunction", "adaptive_cauchy",
+                                         "fisher", "cauchy"),
+                           planned_methods = unique(da_table$method)) {
   p_combine <- Go_ResolvePCombine(p_combine)
   v4_mode <- Go_ResolveV4Mode(p_combine)
   consensus_skeleton <- v4_mode$consensus_skeleton
@@ -132,10 +238,16 @@ Go_DAConsensus <- function(da_table,
     sig         <- x$is_significant %in% TRUE
     support_score <- if (methods_run == 0) NA_real_ else sum(sig, na.rm = TRUE) / methods_run
 
+    family_details <- if (identical(p_combine, "family_partial_conjunction")) {
+      Go_FamilyPartialConjunctionDetails(x$p_value, x$method, planned_methods)
+    } else {
+      NULL
+    }
     combined_p <- switch(
       p_combine,
       fisher = Go_CombinePValuesFisher(x$p_value),
-      adaptive_cauchy = Go_CombinePValuesAdaptiveCauchy(x$p_value)
+      adaptive_cauchy = Go_CombinePValuesAdaptiveCauchy(x$p_value),
+      family_partial_conjunction = family_details$combined_p
     )
     n_p_informative <- sum(is.finite(x$p_value) & !is.na(x$p_value) & x$p_value > 0 & x$p_value < 0.5, na.rm = TRUE)
 
@@ -165,6 +277,16 @@ Go_DAConsensus <- function(da_table,
       consensus_skeleton    = consensus_skeleton,
       stringsAsFactors      = FALSE
     )
+    if (!is.null(family_details)) {
+      row$family_deseq2_p <- unname(family_details$family_p[["deseq2"]])
+      row$family_aldex2_p <- unname(family_details$family_p[["aldex2"]])
+      row$family_ancombc2_p <- unname(family_details$family_p[["ancombc2"]])
+      row$family_corncob_p <- unname(family_details$family_p[["corncob"]])
+      row$n_families_planned <- family_details$n_families_planned
+      row$n_families_estimable <- family_details$n_families_estimable
+      row$partial_conjunction_h <- family_details$partial_conjunction_h
+      row$n_corncob_tests_estimable <- family_details$n_corncob_tests_estimable
+    }
     if (identical(consensus_skeleton, "v1")) {
       row$mean_effect_size   <- mean(x$effect_size, na.rm = TRUE)
       row$median_effect_size <- stats::median(x$effect_size, na.rm = TRUE)
@@ -182,6 +304,11 @@ Go_DAConsensus <- function(da_table,
   out$combined_q              <- stats::p.adjust(out$combined_p, method = "BH")
   out$cauchy_combined_q       <- out$combined_q
   out$is_combined_significant <- out$combined_q < alpha
+
+  if (identical(p_combine, "family_partial_conjunction")) {
+    out$family_partial_conjunction_p <- out$combined_p
+    out$family_partial_conjunction_q <- out$combined_q
+  }
 
   # V1_JSD compatibility aliases (mirror combined_* columns so downstream
   # consumers that expect fisher_combined_p/q keep working).
@@ -256,6 +383,12 @@ Go_FinalScore <- function(da_consensus, beta_contribution,
   p_combine_used <- p_combine_used[!is.na(p_combine_used)]
   if (length(p_combine_used) == 1 && identical(p_combine_used, "fisher")) {
     merged$fisher_da_score <- merged$combined_da_score
+  }
+  if (length(p_combine_used) == 1 && identical(
+    p_combine_used,
+    "family_partial_conjunction"
+  )) {
+    merged$family_partial_conjunction_da_score <- merged$combined_da_score
   }
 
   merged$core_final_score <-

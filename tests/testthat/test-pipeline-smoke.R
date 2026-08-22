@@ -155,6 +155,21 @@ test_that("Go_ResolveMethods normalises maaslin alias", {
   expect_equal(Go_ResolveMethods("maaslin"), "maaslin2")
 })
 
+test_that("Solution1 is the multi-method default and single-method behavior is preserved", {
+  expect_equal(
+    Go_AllDAMethods(),
+    c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  )
+  expect_equal(
+    Go_DefaultPCombineForMethods(Go_AllDAMethods()),
+    "family_partial_conjunction"
+  )
+  expect_equal(
+    Go_DefaultPCombineForMethods("deseq2"),
+    "adaptive_cauchy"
+  )
+})
+
 test_that("Go_ResolveDistances removes phylo metrics when no tree", {
   out <- Go_ResolveDistances(c("bray", "unifrac"), phy_tree = NULL)
   expect_true("bray" %in% out)
@@ -236,6 +251,113 @@ test_that("Go_CombinePValuesCauchy custom weights applied correctly", {
   expect_true(combined_heavy < combined_equal)
 })
 
+# ---- Solution1 family partial conjunction ----------------------------------
+
+solution1_methods <- c(
+  "deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"
+)
+
+test_that("family partial conjunction implements 2 * third family p-value", {
+  p <- c(0.01, 0.02, 0.03, 0.04, 0.05)
+  # corncob family p = 2 * min(0.04, 0.05) = 0.08;
+  # four family p-values are 0.01, 0.02, 0.03, 0.08.
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(p, solution1_methods),
+    0.06,
+    tolerance = 1e-12
+  )
+})
+
+test_that("one extreme constituent cannot dominate the family rule", {
+  p <- c(0.5, 0.5, 1e-30, 0.5, 0.5)
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(p, solution1_methods),
+    1
+  )
+})
+
+test_that("two corncob tests count as one family", {
+  p <- c(0.5, 0.5, 0.5, 1e-30, 1e-20)
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(p, solution1_methods),
+    1
+  )
+})
+
+test_that("missing slots keep the fixed family denominator", {
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(
+      c(0.01, 0.02, 0.03),
+      c("deseq2", "aldex2", "ancombc2"),
+      planned_methods = solution1_methods
+    ),
+    0.06,
+    tolerance = 1e-12
+  )
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(
+      c(0.01, 0.02),
+      c("deseq2", "aldex2"),
+      planned_methods = solution1_methods
+    ),
+    1
+  )
+})
+
+test_that("duplicate method rows are rejected", {
+  expect_error(
+    Go_CombinePValuesFamilyPartialConjunction(
+      c(0.01, 0.02),
+      c("deseq2", "deseq2")
+    ),
+    "Duplicate method rows"
+  )
+})
+
+test_that("V5 family partial conjunction supports configured panels", {
+  expect_silent(
+    ConDAdist:::Go_ValidateFamilyPartialConjunctionPanel(
+      solution1_methods,
+      "family_partial_conjunction"
+    )
+  )
+  expect_silent(
+    ConDAdist:::Go_ValidateFamilyPartialConjunctionPanel(
+      setdiff(solution1_methods, "corncob_wald"),
+      "family_partial_conjunction"
+    )
+  )
+})
+
+test_that("V5 presets resolve to frozen package contracts", {
+  broad <- ConDAdist:::Go_ResolveCDDPreset("broad_panel", supplied = list())
+  stagex <- ConDAdist:::Go_ResolveCDDPreset("recommended_stagex", supplied = list())
+  expect_equal(broad$methods, solution1_methods)
+  expect_null(broad$distances)
+  expect_equal(stagex$methods, setdiff(solution1_methods, "deseq2"))
+  expect_equal(stagex$distances, c("bray", "jsd", "jaccard"))
+  expect_equal(stagex$engine_version, "V5")
+  expect_error(
+    ConDAdist:::Go_ResolveCDDPreset(
+      "recommended_stagex", methods = "deseq2",
+      supplied = list(methods = TRUE)
+    ),
+    "owns its configuration"
+  )
+})
+
+test_that("V5 partial conjunction uses all-but-one planned families", {
+  d3 <- ConDAdist:::Go_FamilyPartialConjunctionDetails(
+    c(0.01, 0.02, 0.03, 0.04),
+    c("aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+    c("aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  )
+  expect_equal(d3$n_families_planned, 3L)
+  expect_equal(d3$partial_conjunction_h, 2L)
+  expect_equal(d3$family_p[["corncob"]], 0.06)
+  expect_equal(d3$combined_p, 0.04)
+})
+
 # ---- Go_CombinedEffectRank (V2) --------------------------------------------
 
 test_that("Go_CombinedEffectRank returns values in [0, 1]", {
@@ -256,7 +378,11 @@ test_that("Go_CombinedEffectRank preserves feature_id names", {
 # ---- Go_DAConsensus (V2 columns) -------------------------------------------
 
 test_that("Go_DAConsensus produces cauchy_combined_q column (not fisher)", {
-  out <- Go_DAConsensus(make_da_table(n = 10), alpha = 0.05)
+  out <- Go_DAConsensus(
+    make_da_table(n = 10),
+    alpha = 0.05,
+    p_combine = "adaptive_cauchy"
+  )
   expect_true("cauchy_combined_q" %in% colnames(out))
   expect_false("fisher_combined_q" %in% colnames(out))
   expect_true("combined_effect_rank" %in% colnames(out))
@@ -274,7 +400,7 @@ test_that("Go_DAConsensus effect_consistency is 0 when no significant methods", 
     is_significant = c(FALSE, FALSE),
     stringsAsFactors = FALSE
   )
-  out <- Go_DAConsensus(da_table, alpha = 0.05)
+  out <- Go_DAConsensus(da_table, alpha = 0.05, p_combine = "adaptive_cauchy")
   expect_equal(out$effect_consistency[out$feature_id == "t1"], 0)
 })
 
@@ -291,9 +417,64 @@ test_that("Go_DAConsensus n_methods_run and DA_support_score correct", {
     is_significant = c(TRUE, TRUE, FALSE, FALSE, TRUE),
     stringsAsFactors = FALSE
   )
-  out <- Go_DAConsensus(da_table, alpha = 0.05)
+  out <- Go_DAConsensus(da_table, alpha = 0.05, p_combine = "adaptive_cauchy")
   expect_equal(nrow(out), n)
   expect_true(all(out$n_methods_run == 1))
+})
+
+test_that("Go_DAConsensus exports Solution1 family diagnostics and BH q-values", {
+  da_table <- data.frame(
+    feature_id = rep(c("t1", "t2"), each = 5),
+    method = rep(solution1_methods, 2),
+    p_value = c(
+      0.01, 0.02, 0.03, 0.04, 0.05,
+      0.5, 0.5, 1e-30, 0.5, 0.5
+    ),
+    q_value = 1,
+    effect_size = rep(c(1, 0.5, 0.25, 0.1, 0.2), 2),
+    direction = "up_in_group2",
+    is_significant = FALSE,
+    stringsAsFactors = FALSE
+  )
+  out <- Go_DAConsensus(da_table, alpha = 0.05)
+
+  expect_equal(out$combined_p, c(0.06, 1), tolerance = 1e-12)
+  expect_equal(out$combined_q, stats::p.adjust(c(0.06, 1), method = "BH"))
+  expect_equal(out$family_corncob_p, c(0.08, 1), tolerance = 1e-12)
+  expect_true(all(out$n_families_planned == 4L))
+  expect_true(all(out$n_families_estimable == 4L))
+  expect_true(all(out$n_corncob_tests_estimable == 2L))
+  expect_equal(out$family_partial_conjunction_p, out$combined_p)
+  expect_equal(out$family_partial_conjunction_q, out$combined_q)
+})
+
+test_that("Go_FinalScore names the Solution1 DA score explicitly", {
+  da_table <- data.frame(
+    feature_id = rep(c("t1", "t2"), each = 5),
+    method = rep(solution1_methods, 2),
+    p_value = c(
+      0.01, 0.02, 0.03, 0.04, 0.05,
+      0.5, 0.5, 1e-30, 0.5, 0.5
+    ),
+    q_value = 1,
+    effect_size = rep(c(1, 0.5, 0.25, 0.1, 0.2), 2),
+    direction = "up_in_group2",
+    is_significant = FALSE,
+    stringsAsFactors = FALSE
+  )
+  da_consensus <- Go_DAConsensus(
+    da_table,
+    p_combine = "family_partial_conjunction"
+  )
+  out <- Go_FinalScore(
+    da_consensus,
+    Go_CreateEmptyBetaContribution(c("t1", "t2")),
+    beta_enabled = FALSE
+  )
+  expect_equal(
+    out$family_partial_conjunction_da_score,
+    out$combined_da_score
+  )
 })
 
 # ---- Go_FinalScore (V2) ----------------------------------------------------
