@@ -331,18 +331,18 @@ test_that("V5 family partial conjunction supports configured panels", {
 
 test_that("V5 presets resolve to frozen package contracts", {
   broad <- ConDAdist:::Go_ResolveCDDPreset("broad_panel", supplied = list())
-  stagex <- ConDAdist:::Go_ResolveCDDPreset("recommended_stagex", supplied = list())
   expect_equal(broad$methods, solution1_methods)
   expect_null(broad$distances)
-  expect_equal(stagex$methods, setdiff(solution1_methods, "deseq2"))
-  expect_equal(stagex$distances, c("bray", "jsd", "jaccard"))
-  expect_equal(stagex$engine_version, "V5")
+  expect_equal(broad$engine_version, "V5")
   expect_error(
     ConDAdist:::Go_ResolveCDDPreset(
-      "recommended_stagex", methods = "deseq2",
-      supplied = list(methods = TRUE)
+      "broad_panel", methods = "deseq2", supplied = list(methods = TRUE)
     ),
     "owns its configuration"
+  )
+  expect_error(
+    ConDAdist:::Go_ResolveCDDPreset("recommended_stagex", supplied = list()),
+    "should be one of"
   )
 })
 

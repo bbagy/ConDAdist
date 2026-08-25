@@ -70,9 +70,8 @@
 #'   \code{"cauchy"} is accepted for backward compatibility but is deprecated
 #'   and mapped to \code{"adaptive_cauchy"}.
 #' @param preset Configuration contract. \code{"broad_panel"} is the conservative
-#'   general default (five tests, no distance); \code{"recommended_stagex"} is
-#'   the frozen Stage-X benchmark selection (four tests plus Bray, JSD, and
-#'   Jaccard); \code{"custom"} accepts explicit component arguments and is not
+#'   general default (five tests, no distance); \code{"custom"} accepts explicit
+#'   component arguments and is not
 #'   independently calibrated. Supplying a component without `preset`
 #'   automatically selects `custom` for backward compatibility.
 #' @param qc_plot Generate QC plots automatically after analysis.
@@ -149,7 +148,7 @@ Go_ConDaDist <- function(
   n_beta_permutations = 99L,
   weights = NULL,
   p_combine = NULL,
-  preset = c("broad_panel", "recommended_stagex", "custom"),
+  preset = c("broad_panel", "custom"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,

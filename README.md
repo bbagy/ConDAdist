@@ -12,16 +12,16 @@ The main entrypoint is `Go_ConDaDist()`.
 ## V5 configuration presets
 
 The package remains `ConDAdist`; the current internal consensus engine is V5.
-The public API exposes two frozen presets and one user-defined mode:
+The public API exposes one frozen preset and one user-defined mode:
 
 - `preset = "broad_panel"` (default): five DA tests grouped into four method
   families, no distance contribution, and all-but-one family partial conjunction.
-- `preset = "recommended_stagex"`: the frozen Stage-X selection with ALDEx2,
-  ANCOM-BC2, corncob Wald/LRT, and Bray + JSD + Jaccard evidence.
 - `preset = "custom"`: user-selected methods, distances, weights, or combiner;
   custom combinations are not claimed to be independently calibrated.
 
-Explicitly supplying `methods`, `distances`, `weights`, or `p_combine` without a
+The Stage-X exhaustive-search candidate is retained only as a reported negative
+benchmark result and is not exposed as a named preset. Explicitly supplying
+`methods`, `distances`, `weights`, or `p_combine` without a
 `preset` automatically selects `custom`, preserving older calls.
 
 ## What ConDA-dist does

@@ -350,13 +350,6 @@ Go_CDDPresetDefinitions <- function() {
       weights = standard_weights,
       p_combine = "family_partial_conjunction",
       calibration = "conservative_general_default"
-    ),
-    recommended_stagex = list(
-      methods = c("aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
-      distances = c("bray", "jsd", "jaccard"),
-      weights = standard_weights,
-      p_combine = "family_partial_conjunction",
-      calibration = "stagex_benchmark_selected"
     )
   )
 }
@@ -364,7 +357,7 @@ Go_CDDPresetDefinitions <- function() {
 Go_ResolveCDDPreset <- function(preset, methods = NULL, distances = NULL,
                                 weights = NULL, p_combine = NULL,
                                 supplied = list()) {
-  preset <- match.arg(preset, c("broad_panel", "recommended_stagex", "custom"))
+  preset <- match.arg(preset, c("broad_panel", "custom"))
   definitions <- Go_CDDPresetDefinitions()
   component_names <- c("methods", "distances", "weights", "p_combine")
   explicitly_supplied <- component_names[vapply(
