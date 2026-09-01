@@ -2,10 +2,14 @@
 % Please edit documentation in R/Go_Consensus.R
 \name{Go_DAConsensus}
 \alias{Go_DAConsensus}
-\title{Summarize DA agreement across methods}
+\title{Summarize DA agreement across methods (V4)}
 \usage{
-Go_DAConsensus(da_table, alpha = 0.05)
+Go_DAConsensus(
+  da_table,
+  alpha = 0.05,
+  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy")
+)
 }
 \description{
-Summarize DA agreement across methods
+Summarize DA agreement across methods (V4)
 }

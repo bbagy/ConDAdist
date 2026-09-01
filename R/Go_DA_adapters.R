@@ -705,6 +705,7 @@ Go_DA_corncob_lrt <- function(feature_table, metadata, group_var, group_1, group
                        method_key = "corncob_lrt", test_type = "LRT")
 }
 
+#' @rdname Go_DA_corncob_common
 Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
                           random_effects = NULL, covariates = NULL, control = NULL, alpha = 0.05) {
   Go_DA_corncob_lrt(feature_table, metadata, group_var, group_1, group_2,

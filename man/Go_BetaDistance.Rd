@@ -10,10 +10,37 @@ Go_BetaDistance(
   group_var,
   group_1,
   group_2,
-  distances = c("bray", "jaccard", "aitchison"),
+  distances = c("bray", "jaccard", "jsd"),
   phy_tree = NULL,
-  n_permutations = 999L
+  n_permutations = 999L,
+  covariates = NULL,
+  strata = NULL
 )
+}
+\arguments{
+\item{feature_table}{Feature-by-sample count matrix.}
+
+\item{metadata}{Sample metadata aligned to the feature-table columns.}
+
+\item{group_var}{Metadata column defining the comparison groups.}
+
+\item{group_1}{Baseline group.}
+
+\item{group_2}{Target group.}
+
+\item{distances}{Distance metrics to compute.}
+
+\item{phy_tree}{Optional phylogenetic tree for UniFrac distances.}
+
+\item{n_permutations}{Number of PERMANOVA permutations.}
+
+\item{covariates}{Optional metadata columns included before the group term;
+the reported statistic is the marginal group partial R-squared.}
+
+\item{strata}{Optional single metadata column defining permutation blocks.}
+}
+\value{
+A list of distance matrices and PERMANOVA summaries.
 }
 \description{
 Compute modular beta-diversity distances

@@ -308,13 +308,28 @@ Go_ResolvePCombine <- function(p_combine) {
   # breaking older scripts that still pass p_combine = "cauchy".
   p <- match.arg(
     arg = p_combine,
-    choices = c("adaptive_cauchy", "fisher", "cauchy")
+    choices = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy")
   )
   if (identical(p, "cauchy")) {
     warning("p_combine = \"cauchy\" is deprecated; using \"adaptive_cauchy\" instead.")
     p <- "adaptive_cauchy"
   }
   p
+}
+
+Go_ValidateFamilyPartialConjunctionPanel <- function(methods, p_combine) {
+  if (!identical(p_combine, "family_partial_conjunction")) {
+    return(invisible(TRUE))
+  }
+  required <- c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  missing <- setdiff(required, unique(methods))
+  if (length(missing) > 0L) {
+    stop(
+      "p_combine = \"family_partial_conjunction\" requires the fixed five-test panel. ",
+      "Missing method(s): ", paste(missing, collapse = ", "), "."
+    )
+  }
+  invisible(TRUE)
 }
 
 Go_ResolveV4Mode <- function(p_combine) {
@@ -1686,7 +1701,8 @@ Go_ComputeSIMPERContribution <- function(feature_table, group_factor) {
 }
 
 Go_LeaveOneTaxonOutScore <- function(feature_table, target_feature, group_factor,
-                                     distances, full_scores, phy_tree = NULL) {
+                                     distances, full_scores, phy_tree = NULL,
+                                     covariate_data = NULL) {
   if (length(distances) == 0) {
     return(0)
   }
@@ -1713,7 +1729,11 @@ Go_LeaveOneTaxonOutScore <- function(feature_table, target_feature, group_factor
     )
     if (is.null(reduced_dist)) next
 
-    loo_score <- loo_score + Go_GroupSeparationScore(as.matrix(reduced_dist), group_factor)
+    loo_score <- loo_score + Go_BetaGroupScore(
+      as.matrix(reduced_dist),
+      group_factor,
+      covariate_data = covariate_data
+    )
     valid_n   <- valid_n + 1
   }
 

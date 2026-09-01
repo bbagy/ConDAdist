@@ -27,6 +27,12 @@
 #'   `pairwise_all = TRUE`, all pairwise comparisons follow this order.
 #' @param project Project name used to create the dated output directory.
 #' @param covariates Optional character vector of metadata covariates.
+#'   When distances are enabled, the same covariates are included before the
+#'   group term in marginal PERMANOVA and in adjusted leave-one-feature-out
+#'   distance contributions.
+#' @param strata Optional single metadata column defining exchangeability
+#'   blocks for PERMANOVA and feature-level beta permutations. This restricts
+#'   permutations; it is not a fixed-effect adjustment.
 #' @param name Optional label appended to output file names.
 #' @param random_effects Optional random-effect metadata variables used for
 #'   native `MaAsLin2` single-mode runs and `ANCOMBC2` mixed-effects models.
@@ -61,7 +67,9 @@
 #' @param n_beta_permutations Number of feature-level beta permutations.
 #' @param weights Named numeric vector controlling final score weights.
 #' @param p_combine DA p-value combination rule used in the consensus layer.
-#'   One of \code{"adaptive_cauchy"} (default) or \code{"fisher"}.
+#'   One of \code{"adaptive_cauchy"} (default),
+#'   \code{"family_partial_conjunction"} (Solution1 fixed five-test panel), or
+#'   \code{"fisher"}.
 #'   \code{"cauchy"} is accepted for backward compatibility but is deprecated
 #'   and mapped to \code{"adaptive_cauchy"}.
 #' @param qc_plot Generate QC plots automatically after analysis.
@@ -70,6 +78,8 @@
 #'   all pairwise comparisons across ordered `group_var` levels.
 #' @param continue_on_error Keep running remaining pairwise comparisons even if
 #'   one comparison fails.
+#' @param filter_scope Whether feature filtering is performed within each
+#'   pairwise comparison (\code{"pairwise"}) or on the supplied input.
 #'
 #' @return Volcano/lollipop bridge table directory path. Single-method mode
 #'   returns `table/ConDaDist_plot_single_Tab`; consensus mode returns
@@ -119,6 +129,7 @@ Go_ConDaDist <- function(
   orders = NULL,
   project,
   covariates = NULL,
+  strata = NULL,
   name = NULL,
   random_effects = NULL,
   # DA methods: "deseq2", "aldex2", "ancombc2", "corncob_lrt"
@@ -134,7 +145,7 @@ Go_ConDaDist <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
+  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
@@ -150,6 +161,7 @@ Go_ConDaDist <- function(
     orders = orders,
     project = project,
     covariates = covariates,
+    strata = strata,
     name = name,
     random_effects = random_effects,
     methods = methods,
@@ -180,6 +192,7 @@ Go_RunConDaDistMain <- function(
   orders = NULL,
   project,
   covariates = NULL,
+  strata = NULL,
   name = NULL,
   random_effects = NULL,
   methods = Go_AllDAMethods(),
@@ -191,7 +204,7 @@ Go_RunConDaDistMain <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
+  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
@@ -263,6 +276,7 @@ Go_RunConDaDistMain <- function(
         name = name,
         random_effects = random_effects,
         covariates = covariates,
+        strata = strata,
         methods = methods,
         distances = distances,
         method_controls = method_controls,
@@ -371,6 +385,7 @@ Go_RunSingleDAensemble <- function(
   name = NULL,
   random_effects = NULL,
   covariates = NULL,
+  strata = NULL,
   methods,
   distances,
   method_controls = NULL,
@@ -380,7 +395,7 @@ Go_RunSingleDAensemble <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
+  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
   qc_plot = TRUE,
   volcano_bridge_root_dir = NULL,
   single_volcano_bridge_root_dir = NULL,
@@ -429,6 +444,7 @@ Go_RunSingleDAensemble <- function(
         group_2 = group_2,
         random_effects = random_effects,
         covariates = covariates,
+        strata = strata,
         methods = methods,
         distances = distances,
         method_controls = attempt$method_controls,
@@ -593,6 +609,7 @@ Go_RunSingleDAAttempt <- function(
   group_2,
   random_effects = NULL,
   covariates = NULL,
+  strata = NULL,
   methods,
   distances,
   method_controls = NULL,
@@ -602,15 +619,17 @@ Go_RunSingleDAAttempt <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "fisher", "cauchy"),
+  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
   output_dir,
   file_prefix = NULL,
   filter_scope = "pairwise"
 ) {
   p_combine <- Go_ResolvePCombine(p_combine)
+  Go_ValidateFamilyPartialConjunctionPanel(methods, p_combine)
   v4_mode <- Go_ResolveV4Mode(p_combine)
   consensus_skeleton <- v4_mode$consensus_skeleton
   beta_contribution <- v4_mode$beta_contribution
+  message("[TIMING] filter_start ", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"))
   message("[ConDA] Aligning samples and filtering features.")
   aligned <- Go_AlignInputs(
     feature_table = input_bundle$feature_table,
@@ -661,6 +680,7 @@ Go_RunSingleDAAttempt <- function(
     stop("Too few features retained after filtering.")
   }
 
+  message("[TIMING] da_methods_start ", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"))
   message("[ConDA] Running DA methods: ", paste(methods, collapse = ", "))
   da_raw <- Go_RunDAmethods(
     feature_table = filtered$feature_table,
@@ -687,6 +707,7 @@ Go_RunSingleDAAttempt <- function(
 
   beta_enabled <- !is.null(distances) && length(distances) > 0
   if (beta_enabled) {
+    message("[TIMING] da_methods_end/beta_distance_start ", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"))
     message("[ConDA] Computing beta distances: ", paste(distances, collapse = ", "))
     beta_distances <- Go_BetaDistance(
       feature_table = filtered$feature_table,
@@ -696,9 +717,12 @@ Go_RunSingleDAAttempt <- function(
       group_2 = group_2,
       distances = distances,
       phy_tree = input_bundle$phy_tree,
-      n_permutations = n_permutations
+      n_permutations = n_permutations,
+      covariates = covariates,
+      strata = strata
     )
 
+    message("[TIMING] beta_distance_end/beta_contribution_start ", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"))
     message("[ConDA] Estimating beta contribution (method = ", beta_contribution, ").")
     beta_contribution_tbl <- Go_BetaContribution(
       feature_table = filtered$feature_table,
@@ -709,13 +733,16 @@ Go_RunSingleDAAttempt <- function(
       beta_distances = beta_distances,
       phy_tree = input_bundle$phy_tree,
       n_beta_permutations = n_beta_permutations,
-      method = beta_contribution
+      method = beta_contribution,
+      covariates = covariates,
+      strata = strata
     )
   } else {
     beta_distances <- Go_CreateEmptyBetaDistance()
     beta_contribution_tbl <- Go_CreateEmptyBetaContribution(rownames(filtered$feature_table))
   }
 
+  message("[TIMING] beta_contribution_end/consensus_start ", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"))
   message("[ConDA] Building consensus tables (p_combine = ", p_combine, ").")
   da_consensus <- Go_DAConsensus(
     da_table = da_standardized$all_methods_standardized,
@@ -735,6 +762,7 @@ Go_RunSingleDAAttempt <- function(
   )
   final_scores <- Go_AppendTaxonomy(final_scores, input_bundle$taxonomy)
 
+  message("[TIMING] consensus_end/export_start ", format(Sys.time(), "%Y-%m-%d %H:%M:%OS3"))
   message("[ConDA] Exporting result tables.")
   exported <- Go_ExportResults(
     output_dir = output_dir,

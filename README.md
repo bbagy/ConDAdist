@@ -41,6 +41,32 @@ Why distances matter:
 
 `distances = NULL` turns off beta-diversity and runs DA-only mode.
 
+### Covariate adjustment and restricted permutations
+
+When distances are enabled, `covariates` are used in both parts of the
+workflow. DA adapters receive the requested fixed effects, and the distance
+layer estimates the marginal group effect after those covariates. Its
+leave-one-feature-out score is the change in the covariate-adjusted group
+partial R-squared, rather than an unadjusted separation score.
+
+Use `strata` for paired or clustered permutation designs. It names one
+metadata column that defines exchangeability blocks for PERMANOVA and the
+feature-level beta permutation test. `strata` restricts label permutations;
+it does not replace a fixed covariate or a mixed-effects model.
+
+```r
+res_dir <- Go_ConDaDist(
+  psIN = ps,
+  group_var = "TreatmentGroup",
+  group_1 = "Control",
+  group_2 = "Case",
+  project = "AdjustedDemo",
+  covariates = c("Age", "Sex"),
+  strata = "SubjectID",
+  distances = "bray"
+)
+```
+
 ## Design Principles
 
 - Keep single-method runs close to the older Go DA family workflow

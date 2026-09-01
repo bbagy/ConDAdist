@@ -2,7 +2,7 @@
 % Please edit documentation in R/Go_Consensus.R
 \name{Go_FinalScore}
 \alias{Go_FinalScore}
-\title{Combine DA consensus and beta-diversity evidence}
+\title{Combine DA consensus and beta-diversity evidence (V4)}
 \usage{
 Go_FinalScore(
   da_consensus,
@@ -13,5 +13,5 @@ Go_FinalScore(
 )
 }
 \description{
-Combine DA consensus and beta-diversity evidence
+Combine DA consensus and beta-diversity evidence (V4)
 }

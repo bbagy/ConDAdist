@@ -171,6 +171,78 @@ test_that("Go_ResolveDistances deduplicates before checking limit", {
   expect_equal(length(out), 3L)
 })
 
+# ---- adjusted/restricted beta model ---------------------------------------
+
+test_that("beta design applies complete cases and preserves permutation blocks", {
+  md <- data.frame(
+    group = rep(c("A", "B"), each = 4),
+    age = c(20:25, NA, 27),
+    subject = rep(paste0("p", 1:4), 2),
+    row.names = paste0("s", 1:8)
+  )
+  design <- Go_PrepareBetaDesign(
+    md, "group", "A", "B", covariates = "age", strata = "subject"
+  )
+  expect_equal(sum(design$keep), 7L)
+  expect_equal(ncol(design$covariate_data), 1L)
+  expect_equal(length(design$strata_factor), 7L)
+})
+
+test_that("restricted group permutations stay within strata", {
+  group <- factor(rep(c("A", "B"), each = 4), levels = c("A", "B"))
+  strata <- factor(rep(paste0("p", 1:4), 2))
+  set.seed(4)
+  permuted <- Go_PermuteGroup(group, strata)
+  for (idx in split(seq_along(group), strata)) {
+    expect_equal(sort(as.character(permuted[idx])), sort(as.character(group[idx])))
+  }
+})
+
+test_that("covariates and strata reach marginal PERMANOVA and adjusted LOO", {
+  skip_if_not_installed("vegan")
+  set.seed(11)
+  md <- data.frame(
+    group = rep(c("A", "B"), each = 6),
+    age = seq_len(12),
+    subject = rep(paste0("p", 1:6), 2),
+    row.names = paste0("s", 1:12)
+  )
+  ft <- matrix(
+    stats::rpois(10 * 12, lambda = 100), nrow = 10,
+    dimnames = list(paste0("t", 1:10), rownames(md))
+  )
+  beta <- Go_BetaDistance(
+    ft, md, "group", "A", "B", distances = "bray",
+    n_permutations = 9L, covariates = "age", strata = "subject"
+  )
+  expect_true(is.finite(beta$beta_summary$statistic))
+  expect_match(beta$beta_summary$notes, "covariates = 1")
+  expect_match(beta$beta_summary$notes, "restricted permutation = TRUE")
+
+  contribution <- Go_BetaContribution(
+    ft, md, "group", "A", "B", beta,
+    n_beta_permutations = 0L, covariates = "age", strata = "subject"
+  )
+  expect_equal(nrow(contribution), nrow(ft))
+  expect_true(all(is.finite(contribution$beta_contribution_score)))
+})
+
+test_that("permutation-free adjusted group R2 matches adonis marginal R2", {
+  skip_if_not_installed("vegan")
+  set.seed(15)
+  x <- matrix(stats::rnorm(20 * 4), nrow = 20)
+  dm <- as.matrix(stats::dist(x))
+  z <- factor(rep(c("Z0", "Z1"), 10))
+  g <- factor(rep(c("A", "B"), each = 10))
+  covariates <- data.frame(.cdd_cov_1 = z, check.names = FALSE)
+  observed <- Go_AdjustedGroupR2(dm, g, covariates)
+  fit <- vegan::adonis2(
+    stats::as.dist(dm) ~ z + g,
+    data = data.frame(z = z, g = g), permutations = 9L, by = "margin"
+  )
+  expect_equal(observed, fit["g", "R2"], tolerance = 1e-10)
+})
+
 # ---- Go_BuildComparisonPlan ------------------------------------------------
 
 test_that("Go_BuildComparisonPlan baseline vs targets", {
@@ -236,6 +308,83 @@ test_that("Go_CombinePValuesCauchy custom weights applied correctly", {
   expect_true(combined_heavy < combined_equal)
 })
 
+# ---- Solution1 family partial conjunction ----------------------------------
+
+solution1_methods <- c(
+  "deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"
+)
+
+test_that("family partial conjunction implements 2 * third family p-value", {
+  p <- c(0.01, 0.02, 0.03, 0.04, 0.05)
+  # corncob family p = 2 * min(0.04, 0.05) = 0.08;
+  # four family p-values are 0.01, 0.02, 0.03, 0.08.
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(p, solution1_methods),
+    0.06,
+    tolerance = 1e-12
+  )
+})
+
+test_that("one extreme constituent cannot dominate the family rule", {
+  p <- c(0.5, 0.5, 1e-30, 0.5, 0.5)
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(p, solution1_methods),
+    1
+  )
+})
+
+test_that("two corncob tests count as one family", {
+  p <- c(0.5, 0.5, 0.5, 1e-30, 1e-20)
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(p, solution1_methods),
+    1
+  )
+})
+
+test_that("missing slots keep the fixed family denominator", {
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(
+      c(0.01, 0.02, 0.03),
+      c("deseq2", "aldex2", "ancombc2")
+    ),
+    0.06,
+    tolerance = 1e-12
+  )
+  expect_equal(
+    Go_CombinePValuesFamilyPartialConjunction(
+      c(0.01, 0.02),
+      c("deseq2", "aldex2")
+    ),
+    1
+  )
+})
+
+test_that("duplicate method rows are rejected", {
+  expect_error(
+    Go_CombinePValuesFamilyPartialConjunction(
+      c(0.01, 0.02),
+      c("deseq2", "deseq2")
+    ),
+    "Duplicate method rows"
+  )
+})
+
+test_that("Solution1 execution requires the frozen five-test panel", {
+  expect_silent(
+    ConDAdist:::Go_ValidateFamilyPartialConjunctionPanel(
+      solution1_methods,
+      "family_partial_conjunction"
+    )
+  )
+  expect_error(
+    ConDAdist:::Go_ValidateFamilyPartialConjunctionPanel(
+      setdiff(solution1_methods, "corncob_wald"),
+      "family_partial_conjunction"
+    ),
+    "Missing method\\(s\\): corncob_wald"
+  )
+})
+
 # ---- Go_CombinedEffectRank (V2) --------------------------------------------
 
 test_that("Go_CombinedEffectRank returns values in [0, 1]", {
@@ -294,6 +443,65 @@ test_that("Go_DAConsensus n_methods_run and DA_support_score correct", {
   out <- Go_DAConsensus(da_table, alpha = 0.05)
   expect_equal(nrow(out), n)
   expect_true(all(out$n_methods_run == 1))
+})
+
+test_that("Go_DAConsensus exports Solution1 family diagnostics and BH q-values", {
+  da_table <- data.frame(
+    feature_id = rep(c("t1", "t2"), each = 5),
+    method = rep(solution1_methods, 2),
+    p_value = c(
+      0.01, 0.02, 0.03, 0.04, 0.05,
+      0.5, 0.5, 1e-30, 0.5, 0.5
+    ),
+    q_value = 1,
+    effect_size = rep(c(1, 0.5, 0.25, 0.1, 0.2), 2),
+    direction = "up_in_group2",
+    is_significant = FALSE,
+    stringsAsFactors = FALSE
+  )
+  out <- Go_DAConsensus(
+    da_table,
+    alpha = 0.05,
+    p_combine = "family_partial_conjunction"
+  )
+
+  expect_equal(out$combined_p, c(0.06, 1), tolerance = 1e-12)
+  expect_equal(out$combined_q, stats::p.adjust(c(0.06, 1), method = "BH"))
+  expect_equal(out$family_corncob_p, c(0.08, 1), tolerance = 1e-12)
+  expect_true(all(out$n_families_planned == 4L))
+  expect_true(all(out$n_families_estimable == 4L))
+  expect_true(all(out$n_corncob_tests_estimable == 2L))
+  expect_equal(out$family_partial_conjunction_p, out$combined_p)
+  expect_equal(out$family_partial_conjunction_q, out$combined_q)
+})
+
+test_that("Go_FinalScore names the Solution1 DA score explicitly", {
+  da_table <- data.frame(
+    feature_id = rep(c("t1", "t2"), each = 5),
+    method = rep(solution1_methods, 2),
+    p_value = c(
+      0.01, 0.02, 0.03, 0.04, 0.05,
+      0.5, 0.5, 1e-30, 0.5, 0.5
+    ),
+    q_value = 1,
+    effect_size = rep(c(1, 0.5, 0.25, 0.1, 0.2), 2),
+    direction = "up_in_group2",
+    is_significant = FALSE,
+    stringsAsFactors = FALSE
+  )
+  da_consensus <- Go_DAConsensus(
+    da_table,
+    p_combine = "family_partial_conjunction"
+  )
+  out <- Go_FinalScore(
+    da_consensus,
+    Go_CreateEmptyBetaContribution(c("t1", "t2")),
+    beta_enabled = FALSE
+  )
+  expect_equal(
+    out$family_partial_conjunction_da_score,
+    out$combined_da_score
+  )
 })
 
 # ---- Go_FinalScore (V2) ----------------------------------------------------
