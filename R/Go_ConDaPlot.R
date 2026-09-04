@@ -145,25 +145,29 @@ Go_ConDaQCplot <- function(result,
       text = paste0(
         "Taxon: ", plot_label,
         "<br>Method: ", method,
+        "<br>Family: ", family,
         "<br>Detected: ", is_significant
       )
     )
   ) +
     ggplot2::geom_tile(color = "white") +
+    ggplot2::facet_grid(family ~ ., scales = "free_y", space = "free_y", switch = "y") +
     ggplot2::scale_fill_manual(values = overlap_cols) +
     ggplot2::scale_x_discrete(labels = label_map) +
     ggplot2::labs(
       title = "ConDAdist",
-      subtitle = "Method Overlap",
+      subtitle = "Method Overlap by Model Family",
       x = NULL,
       y = "Method",
       fill = "Detected",
-      caption = "Filled cells indicate taxa detected as significant by each DA method. Use the HTML version to inspect taxa by hover."
+      caption = "Filled cells indicate taxa detected as significant by each DA method, grouped by model family (corncob Wald/LRT share one family). Use the HTML version to inspect taxa by hover."
     ) +
     base_theme +
     ggplot2::theme(
       axis.text.x = ggplot2::element_blank(),
-      axis.ticks.x = ggplot2::element_blank()
+      axis.ticks.x = ggplot2::element_blank(),
+      strip.placement = "outside",
+      strip.text.y.left = ggplot2::element_text(angle = 0)
     )
 
   top_df <- final_scores[order(-final_scores$priority_score), , drop = FALSE]
@@ -410,6 +414,12 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
 
 Go_BuildMethodOverlapLong <- function(final_scores, da_table) {
   methods <- unique(da_table$method[!is.na(da_table$method)])
+  # Same family-collapse rule as Go_FamilyPartialConjunctionDetails() in
+  # Go_Consensus.R (corncob Wald/LRT share one family; others stand alone).
+  family_key <- Go_NormalizeFamilyMethod(methods)
+  family_key <- ifelse(grepl("^corncob_", family_key), "corncob", family_key)
+  family_of <- stats::setNames(family_key, methods)
+  method_order <- methods[order(family_key, methods)]
   n <- nrow(final_scores)
   out <- lapply(methods, function(method) {
     sig_col <- paste0(method, "_is_significant")
@@ -420,11 +430,14 @@ Go_BuildMethodOverlapLong <- function(final_scores, da_table) {
       plot_label        = final_scores$plot_label,
       plot_label_unique = final_scores$plot_label_unique,
       method            = method,
+      family            = family_of[[method]],
       is_significant    = is_sig,
       stringsAsFactors  = FALSE
     )
   })
-  do.call(rbind, out)
+  overlap_df <- do.call(rbind, out)
+  overlap_df$method <- factor(overlap_df$method, levels = method_order)
+  overlap_df
 }
 
 Go_JoinPlotTaxonomy <- function(final_scores, da_table, taxonomy = NULL) {

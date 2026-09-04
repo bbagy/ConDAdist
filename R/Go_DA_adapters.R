@@ -394,7 +394,20 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
           q_value = fit_df$wi.eBH
         )
       } else {
-        # GLM mode with covariates: model matrix approach
+        # GLM mode with covariates: aldex.clr() + aldex.glm() two-step API.
+        # FIXED 2026-08-29 (two independent bugs, both confirmed by direct
+        # reproduction during the ConDAdist confounding stress test -- every
+        # covariate-adjusted ALDEx2 call was silently falling back to
+        # Wilcoxon):
+        # (1) ALDEx2::aldex(native_counts, mod_matrix, test="glm", ...) --
+        #     the installed ALDEx2 version's one-shot aldex() wrapper does
+        #     not support test="glm" with a model-matrix `conditions` arg.
+        #     aldex.clr()/aldex.glm() is the documented two-step GLM API.
+        # (2) stats::model.matrix(design_formula, data = prepared$metadata)
+        #     throws "'data' argument is of the wrong type" -- prepared$
+        #     metadata keeps phyloseq's S4 "sample_data" class even after
+        #     phyloseq's own as.data.frame.sample_data(), and terms.formula()
+        #     rejects it. unclass() to a genuine data.frame first.
         native_counts <- Go_PrepareCountMatrix(
           prepared$feature_table,
           min_count = 0,
@@ -405,23 +418,38 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
         design_formula <- stats::as.formula(
           paste("~", paste(vapply(design_terms, Go_BacktickName, character(1)), collapse = " + "))
         )
-        mod_matrix <- stats::model.matrix(design_formula, data = prepared$metadata)
+        metadata_plain <- data.frame(unclass(prepared$metadata), stringsAsFactors = FALSE, check.names = FALSE)
+        rownames(metadata_plain) <- rownames(prepared$metadata)
+        mod_matrix <- stats::model.matrix(design_formula, data = metadata_plain)
 
+        ## aldex.clr() only accepts denom = "all" or a user-supplied numeric
+        ## index vector when `conditions` is a model matrix (its automatic
+        ## per-condition iqlr/median selection requires a simple two-level
+        ## vector) -- the configured control$denom (default "iqlr", used by
+        ## the no-covariate t-test path above) is not valid here and errors
+        ## with "please supply the desired vector of indices for the
+        ## denominator". Confirmed by direct reproduction; forcing "all" is
+        ## the documented fallback, not a silent behavior change users would
+        ## see in the no-covariate path.
+        glm_denom <- if (identical(control$denom, "all") || is.numeric(control$denom)) control$denom else "all"
         if (!is.null(control$seed)) set.seed(control$seed)
-        glm_fit <- ALDEx2::aldex(native_counts, mod_matrix, test = "glm",
+        clr <- ALDEx2::aldex.clr(native_counts, mod_matrix,
                                  mc.samples = control$mc_samples,
-                                 denom = control$denom,
+                                 denom = glm_denom,
                                  verbose = FALSE,
                                  useMC = control$use_mc)
-        glm_df <- as.data.frame(glm_fit)
+        glm_df <- ALDEx2::aldex.glm(clr, verbose = FALSE)
 
-        # Extract columns for the group effect (.conda_groupcmp)
+        # Extract columns for the group effect (.conda_groupcmp). aldex.glm()
+        # separates non-intercept coefficient/p-value columns with ":" (only
+        # the Intercept block uses "::") -- verified against the installed
+        # package's actual output columns, not assumed.
         group_col <- paste0(prepared$temp_group_var, "cmp")
-        est_col  <- paste0(group_col, "Est")
-        pval_col <- paste0(group_col, "pval")
-        padj_col <- paste0(group_col, "pval.padj")
+        est_col  <- paste0(group_col, ":Est")
+        pval_col <- paste0(group_col, ":pval")
+        padj_col <- paste0(group_col, ":pval.padj")
         if (!padj_col %in% colnames(glm_df)) {
-          padj_col <- paste0(group_col, "pval.holm")
+          padj_col <- paste0(group_col, ":pval.holm")
         }
 
         out <- Go_CreateBaseDAResult(
@@ -696,6 +724,7 @@ Go_DA_corncob_wald <- function(feature_table, metadata, group_var, group_1, grou
                        method_key = "corncob_wald", test_type = "Wald")
 }
 
+#' @rdname Go_DA_corncob_common
 Go_DA_corncob_lrt <- function(feature_table, metadata, group_var, group_1, group_2,
                               random_effects = NULL, covariates = NULL, control = NULL, alpha = 0.05) {
   control <- Go_GetDAMethodControls("corncob_lrt", control)
@@ -705,7 +734,6 @@ Go_DA_corncob_lrt <- function(feature_table, metadata, group_var, group_1, group
                        method_key = "corncob_lrt", test_type = "LRT")
 }
 
-#' @rdname Go_DA_corncob_common
 Go_DA_corncob <- function(feature_table, metadata, group_var, group_1, group_2,
                           random_effects = NULL, covariates = NULL, control = NULL, alpha = 0.05) {
   Go_DA_corncob_lrt(feature_table, metadata, group_var, group_1, group_2,
