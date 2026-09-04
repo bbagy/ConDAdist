@@ -155,6 +155,21 @@ test_that("Go_ResolveMethods normalises maaslin alias", {
   expect_equal(Go_ResolveMethods("maaslin"), "maaslin2")
 })
 
+test_that("Solution1 is the multi-method default and single-method behavior is preserved", {
+  expect_equal(
+    Go_AllDAMethods(),
+    c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  )
+  expect_equal(
+    Go_DefaultPCombineForMethods(Go_AllDAMethods()),
+    "family_partial_conjunction"
+  )
+  expect_equal(
+    Go_DefaultPCombineForMethods("deseq2"),
+    "adaptive_cauchy"
+  )
+})
+
 test_that("Go_ResolveDistances removes phylo metrics when no tree", {
   out <- Go_ResolveDistances(c("bray", "unifrac"), phy_tree = NULL)
   expect_true("bray" %in% out)
@@ -345,7 +360,8 @@ test_that("missing slots keep the fixed family denominator", {
   expect_equal(
     Go_CombinePValuesFamilyPartialConjunction(
       c(0.01, 0.02, 0.03),
-      c("deseq2", "aldex2", "ancombc2")
+      c("deseq2", "aldex2", "ancombc2"),
+      planned_methods = solution1_methods
     ),
     0.06,
     tolerance = 1e-12
@@ -353,7 +369,8 @@ test_that("missing slots keep the fixed family denominator", {
   expect_equal(
     Go_CombinePValuesFamilyPartialConjunction(
       c(0.01, 0.02),
-      c("deseq2", "aldex2")
+      c("deseq2", "aldex2"),
+      planned_methods = solution1_methods
     ),
     1
   )
@@ -369,20 +386,48 @@ test_that("duplicate method rows are rejected", {
   )
 })
 
-test_that("Solution1 execution requires the frozen five-test panel", {
+test_that("V5 family partial conjunction supports configured panels", {
   expect_silent(
     ConDAdist:::Go_ValidateFamilyPartialConjunctionPanel(
       solution1_methods,
       "family_partial_conjunction"
     )
   )
-  expect_error(
+  expect_silent(
     ConDAdist:::Go_ValidateFamilyPartialConjunctionPanel(
       setdiff(solution1_methods, "corncob_wald"),
       "family_partial_conjunction"
-    ),
-    "Missing method\\(s\\): corncob_wald"
+    )
   )
+})
+
+test_that("V5 presets resolve to frozen package contracts", {
+  broad <- ConDAdist:::Go_ResolveCDDPreset("broad_panel", supplied = list())
+  expect_equal(broad$methods, solution1_methods)
+  expect_null(broad$distances)
+  expect_equal(broad$engine_version, "V5")
+  expect_error(
+    ConDAdist:::Go_ResolveCDDPreset(
+      "broad_panel", methods = "deseq2", supplied = list(methods = TRUE)
+    ),
+    "owns its configuration"
+  )
+  expect_error(
+    ConDAdist:::Go_ResolveCDDPreset("recommended_stagex", supplied = list()),
+    "should be one of"
+  )
+})
+
+test_that("V5 partial conjunction uses all-but-one planned families", {
+  d3 <- ConDAdist:::Go_FamilyPartialConjunctionDetails(
+    c(0.01, 0.02, 0.03, 0.04),
+    c("aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+    c("aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  )
+  expect_equal(d3$n_families_planned, 3L)
+  expect_equal(d3$partial_conjunction_h, 2L)
+  expect_equal(d3$family_p[["corncob"]], 0.06)
+  expect_equal(d3$combined_p, 0.04)
 })
 
 # ---- Go_CombinedEffectRank (V2) --------------------------------------------
@@ -405,7 +450,11 @@ test_that("Go_CombinedEffectRank preserves feature_id names", {
 # ---- Go_DAConsensus (V2 columns) -------------------------------------------
 
 test_that("Go_DAConsensus produces cauchy_combined_q column (not fisher)", {
-  out <- Go_DAConsensus(make_da_table(n = 10), alpha = 0.05)
+  out <- Go_DAConsensus(
+    make_da_table(n = 10),
+    alpha = 0.05,
+    p_combine = "adaptive_cauchy"
+  )
   expect_true("cauchy_combined_q" %in% colnames(out))
   expect_false("fisher_combined_q" %in% colnames(out))
   expect_true("combined_effect_rank" %in% colnames(out))
@@ -423,7 +472,7 @@ test_that("Go_DAConsensus effect_consistency is 0 when no significant methods", 
     is_significant = c(FALSE, FALSE),
     stringsAsFactors = FALSE
   )
-  out <- Go_DAConsensus(da_table, alpha = 0.05)
+  out <- Go_DAConsensus(da_table, alpha = 0.05, p_combine = "adaptive_cauchy")
   expect_equal(out$effect_consistency[out$feature_id == "t1"], 0)
 })
 
@@ -440,7 +489,7 @@ test_that("Go_DAConsensus n_methods_run and DA_support_score correct", {
     is_significant = c(TRUE, TRUE, FALSE, FALSE, TRUE),
     stringsAsFactors = FALSE
   )
-  out <- Go_DAConsensus(da_table, alpha = 0.05)
+  out <- Go_DAConsensus(da_table, alpha = 0.05, p_combine = "adaptive_cauchy")
   expect_equal(nrow(out), n)
   expect_true(all(out$n_methods_run == 1))
 })
@@ -459,11 +508,7 @@ test_that("Go_DAConsensus exports Solution1 family diagnostics and BH q-values",
     is_significant = FALSE,
     stringsAsFactors = FALSE
   )
-  out <- Go_DAConsensus(
-    da_table,
-    alpha = 0.05,
-    p_combine = "family_partial_conjunction"
-  )
+  out <- Go_DAConsensus(da_table, alpha = 0.05)
 
   expect_equal(out$combined_p, c(0.06, 1), tolerance = 1e-12)
   expect_equal(out$combined_q, stats::p.adjust(c(0.06, 1), method = "BH"))
@@ -763,4 +808,23 @@ test_that("minimal_example_ps.rds loads as phyloseq", {
   expect_s4_class(ps, "phyloseq")
   expect_gte(phyloseq::ntaxa(ps), 10L)
   expect_gte(phyloseq::nsamples(ps), 4L)
+})
+
+test_that("full_cdd is an exact alias of broad_panel and freezes the paper's rule", {
+  a <- Go_ResolveCDDPreset("full_cdd", supplied = list())
+  b <- Go_ResolveCDDPreset("broad_panel", supplied = list())
+  a$preset <- NULL
+  b$preset <- NULL
+  expect_identical(a, b)
+  expect_equal(a$methods, solution1_methods)
+  expect_null(a$distances)
+  expect_equal(a$p_combine, "family_partial_conjunction")
+
+  # Four families, h = 3: combined_p = (n - h + 1) * p_(h) = 2 * p_(3).
+  d <- Go_FamilyPartialConjunctionDetails(
+    c(0.01, 0.02, 0.03, 0.04, 0.05), solution1_methods
+  )
+  expect_equal(d$n_families_planned, 4L)
+  expect_equal(d$partial_conjunction_h, 3L)
+  expect_equal(d$combined_p, 0.06, tolerance = 1e-12)
 })

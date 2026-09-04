@@ -1,16 +1,17 @@
 Package: ConDAdist
 Title: Consensus Differential Abundance With Configurable P-Value Combination
-Version: 0.5.0.9000
+Version: 0.5.0
 Authors@R:
     person("Heekuk", "Park", email = "hp2523@cumc.columbia.edu", role = c("aut", "cre"))
 Author: Heekuk Park [aut, cre]
 Maintainer: Heekuk Park <hp2523@cumc.columbia.edu>
 Description: Unified JSD-line CDD core that subsumes ConDA-dist V1_JSD and
-    V2_JSD as a single V4 implementation. The DA consensus layer supports the
-    Solution1 family partial-conjunction rule, adaptive-truncated Cauchy, and
-    Fisher combination. The family rule collapses corncob Wald and LRT into
-    one family before requiring support from at least three of four method
-    families. Fisher uses V1_JSD-style consensus and SIMPER+LOO beta
+    V2_JSD in the internal V5 engine. The DA consensus layer supports a
+    Solution1 family partial-conjunction rule (the production default),
+    legacy adaptive-truncated Cauchy, and Fisher combination. The family rule
+    collapses related tests into method families and applies an all-but-one
+    family partial-conjunction rule. Named broad-panel and Stage-X-recommended
+    presets make the analysis contract explicit. Fisher uses V1_JSD-style consensus and SIMPER+LOO beta
     contribution; the other rules use V2_JSD-style consensus and LOO-only
     beta contribution.
 License: MIT + file LICENSE

@@ -2,7 +2,6 @@
 % Please edit documentation in R/Go_DA_adapters.R
 \name{Go_DA_corncob_common}
 \alias{Go_DA_corncob_common}
-\alias{Go_DA_corncob}
 \title{corncob adapter core}
 \usage{
 Go_DA_corncob_common(
@@ -17,18 +16,6 @@ Go_DA_corncob_common(
   alpha = 0.05,
   method_key = "corncob_wald",
   test_type = "Wald"
-)
-
-Go_DA_corncob(
-  feature_table,
-  metadata,
-  group_var,
-  group_1,
-  group_2,
-  random_effects = NULL,
-  covariates = NULL,
-  control = NULL,
-  alpha = 0.05
 )
 }
 \description{

@@ -2,18 +2,25 @@
 % Please edit documentation in R/Go_Consensus.R
 \name{Go_CombinePValuesFamilyPartialConjunction}
 \alias{Go_CombinePValuesFamilyPartialConjunction}
-\title{Combine five DA tests using the Solution1 family partial-conjunction rule}
+\title{Combine DA method families using the V5 partial-conjunction rule}
 \usage{
-Go_CombinePValuesFamilyPartialConjunction(p_values, methods)
+Go_CombinePValuesFamilyPartialConjunction(
+  p_values,
+  methods,
+  planned_methods = methods
+)
 }
 \arguments{
 \item{p_values}{Numeric p-values.}
 
 \item{methods}{Method identifiers paired with \code{p_values}.}
+
+\item{planned_methods}{Full method panel planned for the run. Missing planned
+tests are retained conservatively with p = 1.}
 }
 \value{
 A single raw partial-conjunction p-value.
 }
 \description{
-Combine five DA tests using the Solution1 family partial-conjunction rule
+Combine DA method families using the V5 partial-conjunction rule
 }

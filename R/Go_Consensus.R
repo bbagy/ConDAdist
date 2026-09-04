@@ -1,5 +1,5 @@
 # ==============================================================================
-# Go_Consensus.R  — V4
+# Go_Consensus.R  — internal engine V5
 #
 # Unified JSD-line consensus core:
 #   - configurable p-value combination, including family partial conjunction
@@ -76,13 +76,13 @@ Go_CombinePValuesAdaptiveCauchy <- function(p_values, weights = NULL, info_thres
 # ------------------------------------------------------------------------------
 # Go_CombinePValuesFamilyPartialConjunction
 #
-# Solution1 fixed-panel rule:
-#   1. Collapse corncob Wald/LRT into one family with Bonferroni min-p.
-#   2. Form four family p-values: DESeq2, ALDEx2, ANCOM-BC2, corncob.
-#   3. Test support from at least 3 of 4 families with 2 * p_(3).
+# V5 configurable-panel rule:
+#   1. Collapse related corncob Wald/LRT tests with Bonferroni min-p.
+#   2. Treat other planned methods as separate model families.
+#   3. Require all-but-one family support via partial conjunction.
 #
-# Missing/invalid p-values are assigned p = 1. The four-family denominator and
-# both corncob slots therefore remain fixed across features and datasets.
+# Missing/invalid planned tests are assigned p = 1 so the planned denominator
+# remains fixed across features within a run.
 # ------------------------------------------------------------------------------
 Go_NormalizeFamilyMethod <- function(methods) {
   key <- tolower(gsub("[^[:alnum:]]+", "", as.character(methods)))
@@ -98,12 +98,18 @@ Go_NormalizeFamilyMethod <- function(methods) {
   out
 }
 
-Go_FamilyPartialConjunctionDetails <- function(p_values, methods) {
+Go_FamilyPartialConjunctionDetails <- function(p_values, methods,
+                                                planned_methods = methods) {
   if (length(p_values) != length(methods)) {
     stop("`p_values` and `methods` must have the same length.")
   }
 
   method_key <- Go_NormalizeFamilyMethod(methods)
+  planned_key <- unique(Go_NormalizeFamilyMethod(planned_methods))
+  supported <- c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
+  if (length(planned_key) == 0L || any(!planned_key %in% supported)) {
+    stop("`planned_methods` must contain supported DA methods.")
+  }
   p_values <- suppressWarnings(as.numeric(p_values))
   valid <- is.finite(p_values) & p_values >= 0 & p_values <= 1
 
@@ -118,46 +124,52 @@ Go_FamilyPartialConjunctionDetails <- function(p_values, methods) {
     list(p = p_values[idx], estimable = TRUE)
   }
 
-  deseq2 <- extract_slot("deseq2")
-  aldex2 <- extract_slot("aldex2")
-  ancombc2 <- extract_slot("ancombc2")
-  corncob_wald <- extract_slot("corncob_wald")
-  corncob_lrt <- extract_slot("corncob_lrt")
+  planned_families <- unique(ifelse(grepl("^corncob_", planned_key), "corncob", planned_key))
+  family_p <- setNames(rep(1, length(planned_families)), planned_families)
+  family_estimable <- setNames(rep(FALSE, length(planned_families)), planned_families)
+  n_corncob_tests_estimable <- 0L
+  for (family in planned_families) {
+    members <- if (identical(family, "corncob")) {
+      intersect(c("corncob_wald", "corncob_lrt"), planned_key)
+    } else {
+      family
+    }
+    slots <- lapply(members, extract_slot)
+    member_p <- vapply(slots, `[[`, numeric(1), "p")
+    member_estimable <- vapply(slots, `[[`, logical(1), "estimable")
+    family_p[[family]] <- min(1, length(members) * min(member_p))
+    family_estimable[[family]] <- any(member_estimable)
+    if (identical(family, "corncob")) {
+      n_corncob_tests_estimable <- sum(member_estimable)
+    }
+  }
+  n_families <- length(family_p)
+  h <- max(1L, n_families - 1L)
+  combined_p <- min(1, (n_families - h + 1L) * sort(family_p)[[h]])
 
-  corncob_p <- min(1, 2 * min(corncob_wald$p, corncob_lrt$p))
-  family_p <- c(
-    deseq2 = deseq2$p,
-    aldex2 = aldex2$p,
-    ancombc2 = ancombc2$p,
-    corncob = corncob_p
-  )
-  ordered_p <- sort(family_p, na.last = NA)
-  combined_p <- min(1, 2 * ordered_p[[3L]])
+  diagnostic_family_p <- c(deseq2 = 1, aldex2 = 1, ancombc2 = 1, corncob = 1)
+  diagnostic_family_p[names(family_p)] <- family_p
 
   list(
     combined_p = combined_p,
-    family_p = family_p,
-    n_families_planned = 4L,
-    n_families_estimable = sum(c(
-      deseq2$estimable,
-      aldex2$estimable,
-      ancombc2$estimable,
-      corncob_wald$estimable || corncob_lrt$estimable
-    )),
-    n_corncob_tests_estimable = sum(c(
-      corncob_wald$estimable,
-      corncob_lrt$estimable
-    ))
+    family_p = diagnostic_family_p,
+    n_families_planned = n_families,
+    n_families_estimable = sum(family_estimable),
+    partial_conjunction_h = h,
+    n_corncob_tests_estimable = n_corncob_tests_estimable
   )
 }
 
-#' Combine five DA tests using the Solution1 family partial-conjunction rule
+#' Combine DA method families using the V5 partial-conjunction rule
 #' @param p_values Numeric p-values.
 #' @param methods Method identifiers paired with `p_values`.
+#' @param planned_methods Full method panel planned for the run. Missing planned
+#'   tests are retained conservatively with p = 1.
 #' @return A single raw partial-conjunction p-value.
 #' @export
-Go_CombinePValuesFamilyPartialConjunction <- function(p_values, methods) {
-  Go_FamilyPartialConjunctionDetails(p_values, methods)$combined_p
+Go_CombinePValuesFamilyPartialConjunction <- function(p_values, methods,
+                                                       planned_methods = methods) {
+  Go_FamilyPartialConjunctionDetails(p_values, methods, planned_methods)$combined_p
 }
 
 # ------------------------------------------------------------------------------
@@ -196,18 +208,23 @@ Go_CombinedEffectRank <- function(da_table, feature_ids) {
 }
 
 # ------------------------------------------------------------------------------
-# Go_DAConsensus  (V4)
+# Go_DAConsensus  (V5)
 #
 # In V4, the consensus "skeleton" is derived from p_combine:
 #   - fisher                     => V1_JSD-style skeleton
 #   - adaptive_cauchy            => V2_JSD-style skeleton
 #   - family_partial_conjunction => V2_JSD-style skeleton
 # ------------------------------------------------------------------------------
-#' Summarize DA agreement across methods (V4)
+#' Summarize DA agreement across methods (V5)
+#' @param da_table Standardized long-format DA result table.
+#' @param alpha BH-adjusted significance threshold.
+#' @param p_combine P-value combination rule.
+#' @param planned_methods Full method panel planned for the run.
 Go_DAConsensus <- function(da_table,
                            alpha = 0.05,
-                           p_combine = c("adaptive_cauchy", "family_partial_conjunction",
-                                         "fisher", "cauchy")) {
+                           p_combine = c("family_partial_conjunction", "adaptive_cauchy",
+                                         "fisher", "cauchy"),
+                           planned_methods = unique(da_table$method)) {
   p_combine <- Go_ResolvePCombine(p_combine)
   v4_mode <- Go_ResolveV4Mode(p_combine)
   consensus_skeleton <- v4_mode$consensus_skeleton
@@ -222,7 +239,7 @@ Go_DAConsensus <- function(da_table,
     support_score <- if (methods_run == 0) NA_real_ else sum(sig, na.rm = TRUE) / methods_run
 
     family_details <- if (identical(p_combine, "family_partial_conjunction")) {
-      Go_FamilyPartialConjunctionDetails(x$p_value, x$method)
+      Go_FamilyPartialConjunctionDetails(x$p_value, x$method, planned_methods)
     } else {
       NULL
     }
@@ -267,6 +284,7 @@ Go_DAConsensus <- function(da_table,
       row$family_corncob_p <- unname(family_details$family_p[["corncob"]])
       row$n_families_planned <- family_details$n_families_planned
       row$n_families_estimable <- family_details$n_families_estimable
+      row$partial_conjunction_h <- family_details$partial_conjunction_h
       row$n_corncob_tests_estimable <- family_details$n_corncob_tests_estimable
     }
     if (identical(consensus_skeleton, "v1")) {

@@ -13,40 +13,13 @@ Go_BetaContribution(
   beta_distances,
   phy_tree = NULL,
   n_beta_permutations = 99L,
-  method = c("loo_only", "simper_loo"),
-  covariates = NULL,
-  strata = NULL
+  method = c("loo_only", "simper_loo")
 )
 }
 \arguments{
-\item{feature_table}{Feature-by-sample count matrix.}
-
-\item{metadata}{Sample metadata aligned to the feature-table columns.}
-
-\item{group_var}{Metadata column defining the comparison groups.}
-
-\item{group_1}{Baseline group.}
-
-\item{group_2}{Target group.}
-
-\item{beta_distances}{Output from \code{Go_BetaDistance()}.}
-
-\item{phy_tree}{Optional phylogenetic tree for UniFrac distances.}
-
-\item{n_beta_permutations}{Number of feature-level beta permutations.}
-
 \item{method}{Contribution formula. \code{"loo_only"} (default, V2_JSD/V4 behaviour)
 uses only the leave-one-taxon-out separation delta. \code{"simper_loo"} (V1_JSD
 behaviour) averages SIMPER contribution with the LOO delta.}
-
-\item{covariates}{Optional metadata columns used to calculate adjusted
-leave-one-feature-out changes in group partial R-squared.}
-
-\item{strata}{Optional single metadata column defining permutation blocks.}
-}
-\value{
-A feature-level data frame of distance contributions and optional
-permutation p-values.
 }
 \description{
 Estimate feature-level beta contributions

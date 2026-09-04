@@ -43,7 +43,7 @@
 #'     \item \code{"aldex2"}       — ALDEx2
 #'     \item \code{"ancombc2"}     — ANCOM-BC2 (log-linear, bias-corrected)
 #'     \item \code{"corncob_lrt"}  — corncob likelihood-ratio test
-#'     \item \code{"corncob_wald"} — corncob Wald test (optional comparator)
+#'     \item \code{"corncob_wald"} — corncob Wald test (paired with LRT as one family)
 #'   }
 #' @param distances Beta-diversity distances to compute. At most 3 distances
 #'   are allowed per run. Set to \code{NULL} to disable beta-diversity and run
@@ -67,19 +67,28 @@
 #' @param n_beta_permutations Number of feature-level beta permutations.
 #' @param weights Named numeric vector controlling final score weights.
 #' @param p_combine DA p-value combination rule used in the consensus layer.
-#'   One of \code{"adaptive_cauchy"} (default),
-#'   \code{"family_partial_conjunction"} (Solution1 fixed five-test panel), or
-#'   \code{"fisher"}.
+#'   One of \code{"family_partial_conjunction"} (default; V5 all-but-one
+#'   method-family agreement), \code{"adaptive_cauchy"} (legacy,
+#'   exploratory only), or \code{"fisher"}.
+#'   When exactly one method is requested and this argument is omitted, CDD
+#'   retains the prior V2 single-method skeleton because no cross-method
+#'   combination is performed.
 #'   \code{"cauchy"} is accepted for backward compatibility but is deprecated
 #'   and mapped to \code{"adaptive_cauchy"}.
+#' @param preset Configuration contract. \code{"full_cdd"} is the conservative
+#'   general default (five tests, no distance); \code{"broad_panel"} is an exact
+#'   alias kept for backward compatibility; \code{"custom"} accepts explicit
+#'   component arguments and is not
+#'   independently calibrated. Supplying a component without `preset`
+#'   automatically selects `custom` for backward compatibility.
 #' @param qc_plot Generate QC plots automatically after analysis.
 #' Volcano bridge tables and Gotools volcano plots are generated automatically.
 #' @param pairwise_all If `TRUE`, ignore the baseline-vs-target pattern and run
 #'   all pairwise comparisons across ordered `group_var` levels.
 #' @param continue_on_error Keep running remaining pairwise comparisons even if
 #'   one comparison fails.
-#' @param filter_scope Whether feature filtering is performed within each
-#'   pairwise comparison (\code{"pairwise"}) or on the supplied input.
+#' @param filter_scope Whether prevalence and abundance filters are computed on
+#'   each pairwise subset (`"pairwise"`) or on the full aligned data (`"global"`).
 #'
 #' @return Volcano/lollipop bridge table directory path. Single-method mode
 #'   returns `table/ConDaDist_plot_single_Tab`; consensus mode returns
@@ -105,7 +114,7 @@
 #'   group_1 = "Control",
 #'   group_2 = "GLP-2",
 #'   project = "DemoProj",
-#'   methods = c("ancombc2", "aldex2", "deseq2"),
+#'   methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
 #'   distances = c("bray", "jaccard", "jsd")
 #' )
 #'
@@ -132,25 +141,40 @@ Go_ConDaDist <- function(
   strata = NULL,
   name = NULL,
   random_effects = NULL,
-  # DA methods: "deseq2", "aldex2", "ancombc2", "corncob_lrt"
-  methods = c("deseq2", "aldex2", "ancombc2", "corncob_lrt"),
+  # Solution1 DA tests: "deseq2", "aldex2", "ancombc2",
+  # "corncob_wald", "corncob_lrt"
+  methods = NULL,
   # distances: "bray", "jaccard", "jsd", "unifrac", "weighted_unifrac"
   # unifrac / weighted_unifrac require a phylogenetic tree in psIN
   # set NULL to run DA-only (no beta-diversity)
-  distances = c("bray", "jaccard", "jsd"),
+  distances = NULL,
   method_controls = NULL,
   prevalence = 0.1,
   abundance = 1e-4,
   alpha = 0.05,
   n_permutations = 999L,
   n_beta_permutations = 99L,
-  weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
+  weights = NULL,
+  p_combine = NULL,
+  preset = c("full_cdd", "broad_panel", "custom"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
   filter_scope = "pairwise"
 ) {
+  supplied <- list(
+    methods = !missing(methods), distances = !missing(distances),
+    weights = !missing(weights), p_combine = !missing(p_combine)
+  )
+  if (missing(preset) && any(unlist(supplied))) preset <- "custom"
+  config <- Go_ResolveCDDPreset(
+    preset = preset, methods = methods, distances = distances,
+    weights = weights, p_combine = p_combine, supplied = supplied
+  )
+  methods <- config$methods
+  distances <- config$distances
+  weights <- config$weights
+  p_combine <- config$p_combine
   p_combine <- Go_ResolvePCombine(p_combine)
   result <- Go_RunConDaDistMain(
     feature_table = psIN,
@@ -204,7 +228,7 @@ Go_RunConDaDistMain <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
+  p_combine = c("family_partial_conjunction", "adaptive_cauchy", "fisher", "cauchy"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
@@ -395,7 +419,7 @@ Go_RunSingleDAensemble <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
+  p_combine = c("family_partial_conjunction", "adaptive_cauchy", "fisher", "cauchy"),
   qc_plot = TRUE,
   volcano_bridge_root_dir = NULL,
   single_volcano_bridge_root_dir = NULL,
@@ -619,7 +643,7 @@ Go_RunSingleDAAttempt <- function(
   n_permutations = 999L,
   n_beta_permutations = 99L,
   weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
+  p_combine = c("family_partial_conjunction", "adaptive_cauchy", "fisher", "cauchy"),
   output_dir,
   file_prefix = NULL,
   filter_scope = "pairwise"
@@ -747,7 +771,8 @@ Go_RunSingleDAAttempt <- function(
   da_consensus <- Go_DAConsensus(
     da_table = da_standardized$all_methods_standardized,
     alpha = alpha,
-    p_combine = p_combine
+    p_combine = p_combine,
+    planned_methods = methods
   )
   method_annotation <- Go_BuildMethodAnnotation(
     da_table = da_standardized$all_methods_standardized

@@ -15,16 +15,17 @@ Go_ConDaDist(
   strata = NULL,
   name = NULL,
   random_effects = NULL,
-  methods = c("deseq2", "aldex2", "ancombc2", "corncob_lrt"),
-  distances = c("bray", "jaccard", "jsd"),
+  methods = NULL,
+  distances = NULL,
   method_controls = NULL,
   prevalence = 0.1,
   abundance = 1e-04,
   alpha = 0.05,
   n_permutations = 999L,
   n_beta_permutations = 99L,
-  weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
-  p_combine = c("adaptive_cauchy", "family_partial_conjunction", "fisher", "cauchy"),
+  weights = NULL,
+  p_combine = NULL,
+  preset = c("broad_panel", "custom"),
   qc_plot = TRUE,
   pairwise_all = FALSE,
   continue_on_error = TRUE,
@@ -69,7 +70,7 @@ supported methods. Available options:
 \item \code{"aldex2"}       — ALDEx2
 \item \code{"ancombc2"}     — ANCOM-BC2 (log-linear, bias-corrected)
 \item \code{"corncob_lrt"}  — corncob likelihood-ratio test
-\item \code{"corncob_wald"} — corncob Wald test (optional comparator)
+\item \code{"corncob_wald"} — corncob Wald test (paired with LRT as one family)
 }}
 
 \item{distances}{Beta-diversity distances to compute. At most 3 distances
@@ -102,11 +103,20 @@ filtering.}
 \item{weights}{Named numeric vector controlling final score weights.}
 
 \item{p_combine}{DA p-value combination rule used in the consensus layer.
-One of \code{"adaptive_cauchy"} (default),
-\code{"family_partial_conjunction"} (Solution1 fixed five-test panel), or
-\code{"fisher"}.
+One of \code{"family_partial_conjunction"} (default; V5 all-but-one
+method-family agreement), \code{"adaptive_cauchy"} (legacy,
+exploratory only), or \code{"fisher"}.
+When exactly one method is requested and this argument is omitted, CDD
+retains the prior V2 single-method skeleton because no cross-method
+combination is performed.
 \code{"cauchy"} is accepted for backward compatibility but is deprecated
 and mapped to \code{"adaptive_cauchy"}.}
+
+\item{preset}{Configuration contract. \code{"broad_panel"} is the conservative
+general default (five tests, no distance); \code{"custom"} accepts explicit
+component arguments and is not
+independently calibrated. Supplying a component without \code{preset}
+automatically selects \code{custom} for backward compatibility.}
 
 \item{qc_plot}{Generate QC plots automatically after analysis.
 Volcano bridge tables and Gotools volcano plots are generated automatically.}
@@ -117,8 +127,8 @@ all pairwise comparisons across ordered \code{group_var} levels.}
 \item{continue_on_error}{Keep running remaining pairwise comparisons even if
 one comparison fails.}
 
-\item{filter_scope}{Whether feature filtering is performed within each
-pairwise comparison (\code{"pairwise"}) or on the supplied input.}
+\item{filter_scope}{Whether prevalence and abundance filters are computed on
+each pairwise subset (\code{"pairwise"}) or on the full aligned data (\code{"global"}).}
 }
 \value{
 Volcano/lollipop bridge table directory path. Single-method mode
@@ -166,7 +176,7 @@ res_dir <- Go_ConDaDist(
   group_1 = "Control",
   group_2 = "GLP-2",
   project = "DemoProj",
-  methods = c("ancombc2", "aldex2", "deseq2"),
+  methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
   distances = c("bray", "jaccard", "jsd")
 )
 

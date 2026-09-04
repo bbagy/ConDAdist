@@ -9,6 +9,21 @@ evidence integration.
 
 The main entrypoint is `Go_ConDaDist()`.
 
+## V5 configuration presets
+
+The package remains `ConDAdist`; the current internal consensus engine is V5.
+The public API exposes one frozen preset and one user-defined mode:
+
+- `preset = "broad_panel"` (default): five DA tests grouped into four method
+  families, no distance contribution, and all-but-one family partial conjunction.
+- `preset = "custom"`: user-selected methods, distances, weights, or combiner;
+  custom combinations are not claimed to be independently calibrated.
+
+The Stage-X exhaustive-search candidate is retained only as a reported negative
+benchmark result and is not exposed as a named preset. Explicitly supplying
+`methods`, `distances`, `weights`, or `p_combine` without a
+`preset` automatically selects `custom`, preserving older calls.
+
 ## What ConDA-dist does
 
 `Go_ConDaDist()` can be used in two modes.
@@ -24,7 +39,8 @@ Supported DA methods:
 - `aldex2`
 - `ancombc2`
 - `maaslin2`
-- `corncob`
+- `corncob_wald`
+- `corncob_lrt`
 
 Supported distance metrics:
 
@@ -208,6 +224,34 @@ Key arguments:
   DA-only multi-method consensus
 - `multi + dist`
   full ConDA mode
+
+### Consensus inference default (V5)
+
+The conservative `broad_panel` default uses five tests grouped into four
+method families:
+
+```r
+methods = c(
+  "deseq2", "aldex2", "ancombc2",
+  "corncob_wald", "corncob_lrt"
+)
+p_combine = "family_partial_conjunction"
+```
+
+Within any V5 panel, related corncob Wald and LRT tests are first collapsed
+into one Bonferroni family p-value. For `m` planned families, CDD tests the
+all-but-one partial-conjunction hypothesis with `h = max(1, m - 1)` and
+`min(1, (m - h + 1) * p_(h))`, then applies BH across features. Missing planned
+tests occupy their slots with `p = 1`; one extreme method therefore cannot
+determine a multi-family consensus result by itself.
+
+`p_combine = "adaptive_cauchy"` remains available only for explicit legacy
+or exploratory reproduction. It is not the production consensus default.
+Custom multi-method subsets may use the same generalized rule, but are labeled
+as not independently calibrated rather than inheriting the Stage-X claim.
+
+Pure single-method and one-method-plus-distance runs retain their existing V2
+behavior automatically because no cross-method p-value consensus is possible.
 
 The `single + dist` case is especially useful when a user strongly prefers one
 DA method but still wants to reinterpret that result with an additional
