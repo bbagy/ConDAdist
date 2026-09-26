@@ -15,8 +15,9 @@
 #' @export
 Go_CombinePValuesFisher <- function(p_values) {
   p_values <- p_values[is.finite(p_values) & !is.na(p_values)]
-  p_values <- p_values[p_values > 0 & p_values <= 1]
+  p_values <- p_values[p_values >= 0 & p_values <= 1]
   if (length(p_values) == 0) return(NA_real_)
+  p_values <- pmax(p_values, 1e-300)
   stat <- -2 * sum(log(p_values))
   stats::pchisq(stat, df = 2 * length(p_values), lower.tail = FALSE)
 }
@@ -28,13 +29,20 @@ Go_CombinePValuesFisher <- function(p_values) {
 # ------------------------------------------------------------------------------
 #' @export
 Go_CombinePValuesCauchy <- function(p_values, weights = NULL) {
-  p_values <- p_values[is.finite(p_values) & !is.na(p_values)]
-  p_values <- p_values[p_values > 0 & p_values <= 1]
+  if (!is.null(weights) && length(weights) != length(p_values)) {
+    stop("`weights` must have the same length as `p_values`.")
+  }
+  valid <- is.finite(p_values) & !is.na(p_values) & p_values >= 0 & p_values <= 1
+  p_values <- p_values[valid]
   if (length(p_values) == 0) return(NA_real_)
+  p_values <- pmin(pmax(p_values, 1e-15), 1 - 1e-15)
   n <- length(p_values)
   if (is.null(weights)) {
     weights <- rep(1 / n, n)
   } else {
+    weights <- weights[valid]
+    weights[!is.finite(weights) | weights < 0] <- 0
+    if (sum(weights) <= 0) weights <- rep(1, n)
     weights <- weights / sum(weights)
   }
   T_stat <- sum(weights * tan((0.5 - p_values) * pi))
@@ -50,9 +58,10 @@ Go_CombinePValuesCauchy <- function(p_values, weights = NULL) {
 # ------------------------------------------------------------------------------
 #' @export
 Go_CombinePValuesAdaptiveCauchy <- function(p_values, weights = NULL, info_threshold = 0.5) {
-  valid <- is.finite(p_values) & !is.na(p_values) & p_values > 0 & p_values <= 1
+  valid <- is.finite(p_values) & !is.na(p_values) & p_values >= 0 & p_values <= 1
   p_values <- p_values[valid]
   if (length(p_values) == 0) return(NA_real_)
+  p_values <- pmin(pmax(p_values, 1e-15), 1 - 1e-15)
 
   if (is.null(weights)) {
     weights <- rep(1, length(p_values))
@@ -453,7 +462,8 @@ Go_BuildMethodAnnotation <- function(da_table) {
 
     feat <- matched$feature_id
     rows <- match(feat, out$feature_id)
-    out[[paste0(method, "_detected")]][rows]       <- TRUE
+    has_native_result <- is.finite(matched$p_value) | is.finite(matched$effect_size)
+    out[[paste0(method, "_detected")]][rows]       <- has_native_result
     out[[paste0(method, "_is_significant")]][rows]  <- matched$is_significant %in% TRUE
     out[[paste0(method, "_p_value")]][rows]         <- matched$p_value
     out[[paste0(method, "_q_value")]][rows]         <- matched$q_value

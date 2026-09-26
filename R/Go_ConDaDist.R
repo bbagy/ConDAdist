@@ -537,6 +537,21 @@ Go_RunSingleDAensemble <- function(
     return(invisible(failed))
   }
 
+  method_status <- Go_ExtractMethodLevelStatus(
+    result$da_standardized$all_methods_standardized
+  )
+  incomplete_methods <- method_status[method_status$status != "success", , drop = FALSE]
+  if (nrow(incomplete_methods) > 0L) {
+    message("[ConDA] Comparison completed with unavailable methods:")
+    for (i in seq_len(nrow(incomplete_methods))) {
+      message(
+        "  - ", incomplete_methods$method[i], " [", incomplete_methods$status[i], "]: ",
+        incomplete_methods$note[i]
+      )
+    }
+  }
+  result$method_status <- method_status
+
   optimization <- Go_BuildOptimizationSummary(
     attempt_plan = attempt_plan,
     final_attempt_id = result$attempt_id,
@@ -613,6 +628,7 @@ Go_RunSingleDAensemble <- function(
     input_bundle = input_bundle,
     da_raw = result$da_raw,
     da_standardized = result$da_standardized,
+    method_status = result$method_status,
     beta_distances = result$beta_distances,
     beta_contribution = result$beta_contribution,
     da_consensus = result$da_consensus,
@@ -662,11 +678,17 @@ Go_RunSingleDAAttempt <- function(
   single_method_mode <- length(methods) == 1 && (is.null(distances) || length(distances) == 0)
 
   filter_input <- aligned
-  if (identical(filter_scope, "pairwise")) {
-    pairwise_mask <- as.character(filter_input$metadata[[group_var]]) %in% c(group_1, group_2)
-    filter_input$feature_table <- filter_input$feature_table[, pairwise_mask, drop = FALSE]
-    filter_input$metadata <- filter_input$metadata[pairwise_mask, , drop = FALSE]
-  }
+  filter_input <- Go_PrepareAnalysisCohort(
+    feature_table = filter_input$feature_table,
+    metadata = filter_input$metadata,
+    group_var = group_var,
+    group_1 = group_1,
+    group_2 = group_2,
+    covariates = covariates,
+    random_effects = random_effects,
+    strata = strata,
+    pairwise_only = identical(filter_scope, "pairwise")
+  )
   filtered <- Go_FilterFeatures(
     feature_table = filter_input$feature_table,
     metadata = filter_input$metadata,

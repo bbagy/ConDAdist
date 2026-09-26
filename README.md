@@ -365,6 +365,13 @@ Notes:
 
 - `maaslin2` single mode uses the native `MaAsLin2` workflow
 - `ancombc2` supports mixed-effects through `random_effects`
+- `maaslin2` and `ancombc2` are the only adapters that accept
+  `random_effects`; other requested methods are explicitly skipped rather than
+  silently treating a random effect as a fixed covariate
+- requested covariate, random-effect, and strata columns must exist in the
+  metadata; unknown names stop the analysis
+- complete-case samples are fixed before prevalence/abundance filtering so
+  the DA and distance layers use the same analysis population
 - single mode returns the output directory path invisibly
 - if one DA method is supplied together with `distances`, the run becomes a
   one-method-plus-beta mode rather than pure single mode

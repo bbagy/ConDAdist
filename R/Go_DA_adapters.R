@@ -71,13 +71,23 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
     corncob  = c("corncob", "phyloseq"),
     deseq2   = c("DESeq2", "phyloseq")
   )
-  missing_by_method <- lapply(methods, function(m) {
+  random_effects <- unique(as.character(random_effects))
+  random_effects <- random_effects[!is.na(random_effects) & nzchar(random_effects)]
+  random_capable <- c("ancombc2", "maaslin2")
+  unsupported_random <- if (length(random_effects) > 0L) {
+    setdiff(methods, random_capable)
+  } else {
+    character(0)
+  }
+  runnable_methods <- setdiff(methods, unsupported_random)
+
+  missing_by_method <- lapply(runnable_methods, function(m) {
     pkgs <- required_packages[[m]]
     if (is.null(pkgs)) return(NULL)
     miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
     if (length(miss) > 0) miss else NULL
   })
-  names(missing_by_method) <- methods
+  names(missing_by_method) <- runnable_methods
   missing_by_method <- Filter(Negate(is.null), missing_by_method)
   if (length(missing_by_method) > 0) {
     lines <- paste0("  ", names(missing_by_method), ": ",
@@ -93,6 +103,17 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
   names(results) <- methods
 
   for (method in methods) {
+    if (method %in% unsupported_random) {
+      note <- paste0(
+        "Skipped: ", method, " does not support random effects; requested: ",
+        paste(random_effects, collapse = ", "), "."
+      )
+      message("[ConDA] WARNING: ", note)
+      results[[method]] <- Go_CreateSkippedAdapterResult(
+        feature_ids = rownames(feature_table), method = method, note = note
+      )
+      next
+    }
     adapter <- adapters[[method]]
     if (is.null(adapter)) {
       message("[ConDA] WARNING: ", method, " is unsupported and was skipped.")

@@ -182,15 +182,59 @@ Go_AlignInputs <- function(feature_table, metadata) {
   )
 }
 
+Go_PrepareAnalysisCohort <- function(feature_table, metadata, group_var,
+                                     group_1, group_2, covariates = NULL,
+                                     random_effects = NULL, strata = NULL,
+                                     pairwise_only = TRUE) {
+  clean_names <- function(x) {
+    x <- unique(as.character(x))
+    x[!is.na(x) & nzchar(x)]
+  }
+  requested <- unique(c(
+    group_var, clean_names(covariates), clean_names(random_effects), clean_names(strata)
+  ))
+  missing_columns <- setdiff(requested, colnames(metadata))
+  if (length(missing_columns) > 0L) {
+    stop("Unknown analysis metadata column(s): ", paste(missing_columns, collapse = ", "), ".")
+  }
+
+  keep <- stats::complete.cases(metadata[, requested, drop = FALSE])
+  if (isTRUE(pairwise_only)) {
+    keep <- keep & metadata[[group_var]] %in% c(group_1, group_2)
+  }
+  metadata <- metadata[keep, , drop = FALSE]
+  feature_table <- feature_table[, rownames(metadata), drop = FALSE]
+
+  pair_counts <- table(factor(metadata[[group_var]], levels = c(group_1, group_2)))
+  if (any(pair_counts == 0L)) {
+    stop("Both comparison groups require complete observations for the analysis model.")
+  }
+
+  list(feature_table = feature_table, metadata = metadata)
+}
+
 Go_PrepareDAInputs <- function(feature_table, metadata, group_var, group_1, group_2,
                                covariates = NULL, random_effects = NULL) {
   feature_table <- Go_AsMatrix(feature_table)
-  keep_cols <- c(group_var, covariates, random_effects)
-  keep_cols <- unique(keep_cols[!is.na(keep_cols) & nzchar(keep_cols)])
-  keep_cols <- intersect(keep_cols, colnames(metadata))
-  if (!group_var %in% keep_cols) {
-    stop("group_var must be present in metadata.")
+  clean_names <- function(x) {
+    x <- unique(as.character(x))
+    x[!is.na(x) & nzchar(x)]
   }
+  covariates <- setdiff(clean_names(covariates), group_var)
+  random_effects <- setdiff(clean_names(random_effects), group_var)
+  requested <- unique(c(group_var, covariates, random_effects))
+  missing_columns <- setdiff(requested, colnames(metadata))
+  if (length(missing_columns) > 0L) {
+    stop("Unknown DA-model metadata column(s): ", paste(missing_columns, collapse = ", "), ".")
+  }
+  duplicated_roles <- intersect(covariates, random_effects)
+  if (length(duplicated_roles) > 0L) {
+    stop(
+      "Metadata column(s) cannot be both fixed covariates and random effects: ",
+      paste(duplicated_roles, collapse = ", "), "."
+    )
+  }
+  keep_cols <- requested
 
   keep_samples <- metadata[[group_var]] %in% c(group_1, group_2)
   md <- metadata[keep_samples, keep_cols, drop = FALSE]
@@ -211,8 +255,8 @@ Go_PrepareDAInputs <- function(feature_table, metadata, group_var, group_1, grou
     group_var = group_var,
     group_1 = group_1,
     group_2 = group_2,
-    covariates = setdiff(keep_cols, group_var),
-    random_effects = intersect(random_effects, colnames(md)),
+    covariates = covariates,
+    random_effects = if (length(random_effects) == 0L) NULL else random_effects,
     temp_group_var = ".conda_group",
     comparison = paste0(group_1, "_vs_", group_2)
   )
@@ -877,16 +921,6 @@ Go_ResolveDistances <- function(distances, phy_tree = NULL) {
 }
 
 
-Go_CombinePValuesFisher <- function(p_values) {
-  p_values <- p_values[is.finite(p_values) & !is.na(p_values)]
-  p_values <- p_values[p_values > 0 & p_values <= 1]
-  if (length(p_values) == 0) {
-    return(NA_real_)
-  }
-  stat <- -2 * sum(log(p_values))
-  stats::pchisq(stat, df = 2 * length(p_values), lower.tail = FALSE)
-}
-
 Go_CreateEmptyBetaDistance <- function() {
   list(
     distance_matrices = list(),
@@ -1515,10 +1549,16 @@ Go_ExtractMethodLevelStatus <- function(da_table) {
   if (is.null(da_table) || nrow(da_table) == 0) {
     return(data.frame())
   }
-  split_notes <- split(da_table$notes, da_table$method)
+  split_rows <- split(da_table, da_table$method)
   data.frame(
-    method = names(split_notes),
-    note = vapply(split_notes, function(x) paste(unique(stats::na.omit(x)), collapse = " | "), character(1)),
+    method = names(split_rows),
+    status = vapply(split_rows, function(x) {
+      has_result <- any(is.finite(x$p_value) | is.finite(x$effect_size), na.rm = TRUE)
+      if (has_result) return("success")
+      notes <- paste(unique(stats::na.omit(x$notes)), collapse = " | ")
+      if (grepl("failed", notes, ignore.case = TRUE)) "failed" else "skipped"
+    }, character(1)),
+    note = vapply(split_rows, function(x) paste(unique(stats::na.omit(x$notes)), collapse = " | "), character(1)),
     stringsAsFactors = FALSE
   )
 }
@@ -1539,12 +1579,15 @@ Go_ShouldRetryAnalysis <- function(filtered, da_table, methods, attempt_id, max_
     return(TRUE)
   }
 
-  failed_native <- grepl("Native .* adapter failed", method_status$note)
-  if (any(failed_native)) {
+  if (any(method_status$status == "failed")) {
     return(TRUE)
   }
 
   unresolved <- vapply(methods, function(method) {
+    status_row <- method_status[method_status$method == method, , drop = FALSE]
+    if (nrow(status_row) == 1L && status_row$status != "success") {
+      return(FALSE)
+    }
     this <- da_table[da_table$method == method, , drop = FALSE]
     if (nrow(this) == 0) {
       return(TRUE)
@@ -1565,7 +1608,7 @@ Go_BuildOptimizationSummary <- function(attempt_plan, final_attempt_id, final_st
     final_status = final_status,
     error_message = error_message,
     method_status = if (nrow(method_status) == 0) NA_character_ else paste(
-      paste(method_status$method, method_status$note, sep = ": "),
+      paste0(method_status$method, " [", method_status$status, "]: ", method_status$note),
       collapse = " || "
     ),
     stringsAsFactors = FALSE
