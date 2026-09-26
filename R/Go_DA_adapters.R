@@ -95,10 +95,11 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
   for (method in methods) {
     adapter <- adapters[[method]]
     if (is.null(adapter)) {
-      results[[method]] <- Go_CreateAdapterFallback(
+      message("[ConDA] WARNING: ", method, " is unsupported and was skipped.")
+      results[[method]] <- Go_CreateSkippedAdapterResult(
         feature_ids = rownames(feature_table),
         method = method,
-        note = "Unsupported method."
+        note = "Skipped: unsupported method."
       )
       next
     }
@@ -118,10 +119,11 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
         alpha = alpha
       ),
       error = function(e) {
-        Go_CreateAdapterFallback(
+        message("[ConDA] WARNING: ", method, " failed and was skipped. Reason: ", conditionMessage(e))
+        Go_CreateSkippedAdapterResult(
           feature_ids = rownames(feature_table),
           method = method,
-          note = conditionMessage(e)
+          note = paste0("Failed and skipped: ", conditionMessage(e))
         )
       }
     )
@@ -157,20 +159,8 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("ancombc2", control)
   native_check <- Go_ShouldUseNativeAdapter("ancombc2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: ANCOMBC2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
-    return(Go_BasicEffectAdapter(
-      feature_table = feature_table,
-      metadata = metadata,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      covariates = covariates,
-      method = "wilcoxon",
-      effect_type = "log2FC",
-      notes = paste0("wilcoxon fallback (ancombc2 skipped: ", native_check$note, ")"),
-      control = NULL,
-      alpha = alpha
-    ))
+    message("[ConDA] WARNING: ANCOMBC2 could not run and was skipped. Reason: ", native_check$note)
+    return(Go_CreateSkippedAdapterResult(rownames(feature_table), "ancombc2", paste0("Skipped: ", native_check$note)))
   }
   Go_RunNativeAdapter(
     method_name = "ANCOMBC2",
@@ -297,21 +287,9 @@ Go_DA_ancombc2 <- function(feature_table, metadata, group_var, group_1, group_2,
       out$is_significant <- out$q_value < alpha
       out
     },
-    fallback_fun = function(note) {
-      message("[ConDA] WARNING: ANCOMBC2 failed — running Wilcoxon fallback. Reason: ", note)
-      Go_BasicEffectAdapter(
-        feature_table = feature_table,
-        metadata = metadata,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        covariates = covariates,
-        method = "wilcoxon",
-        effect_type = "log2FC",
-        notes = paste0("wilcoxon fallback (ancombc2 failed: ", note, ")"),
-        control = NULL,
-        alpha = alpha
-      )
+    failure_fun = function(note) {
+      message("[ConDA] WARNING: ANCOMBC2 failed and was skipped. Reason: ", note)
+      Go_CreateSkippedAdapterResult(rownames(feature_table), "ancombc2", paste0("Failed and skipped: ", note))
     }
   )
 }
@@ -323,20 +301,8 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("aldex2", control)
   native_check <- Go_ShouldUseNativeAdapter("aldex2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: ALDEx2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
-    return(Go_BasicEffectAdapter(
-      feature_table = feature_table,
-      metadata = metadata,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      covariates = covariates,
-      method = "wilcoxon",
-      effect_type = "log2FC",
-      notes = paste0("wilcoxon fallback (aldex2 skipped: ", native_check$note, ")"),
-      control = NULL,
-      alpha = alpha
-    ))
+    message("[ConDA] WARNING: ALDEx2 could not run and was skipped. Reason: ", native_check$note)
+    return(Go_CreateSkippedAdapterResult(rownames(feature_table), "aldex2", paste0("Skipped: ", native_check$note)))
   }
   Go_RunNativeAdapter(
     method_name = "ALDEx2",
@@ -468,21 +434,9 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
       out$is_significant <- out$q_value < alpha
       out
     },
-    fallback_fun = function(note) {
-      message("[ConDA] WARNING: ALDEx2 failed — running Wilcoxon fallback. Reason: ", note)
-      Go_BasicEffectAdapter(
-        feature_table = feature_table,
-        metadata = metadata,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        covariates = covariates,
-        method = "wilcoxon",
-        effect_type = "log2FC",
-        notes = paste0("wilcoxon fallback (aldex2 failed: ", note, ")"),
-        control = NULL,
-        alpha = alpha
-      )
+    failure_fun = function(note) {
+      message("[ConDA] WARNING: ALDEx2 failed and was skipped. Reason: ", note)
+      Go_CreateSkippedAdapterResult(rownames(feature_table), "aldex2", paste0("Failed and skipped: ", note))
     }
   )
 }
@@ -494,20 +448,8 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("maaslin2", control)
   native_check <- Go_ShouldUseNativeAdapter("maaslin2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: MaAsLin2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
-    return(Go_BasicEffectAdapter(
-      feature_table = feature_table,
-      metadata = metadata,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      covariates = covariates,
-      method = "wilcoxon",
-      effect_type = "log2FC",
-      notes = paste0("wilcoxon fallback (maaslin2 skipped: ", native_check$note, ")"),
-      control = NULL,
-      alpha = alpha
-    ))
+    message("[ConDA] WARNING: MaAsLin2 could not run and was skipped. Reason: ", native_check$note)
+    return(Go_CreateSkippedAdapterResult(rownames(feature_table), "maaslin2", paste0("Skipped: ", native_check$note)))
   }
   Go_RunNativeAdapter(
     method_name = "Maaslin2",
@@ -559,21 +501,9 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
       out$is_significant <- out$q_value < alpha
       out
     },
-    fallback_fun = function(note) {
-      message("[ConDA] WARNING: MaAsLin2 failed — running Wilcoxon fallback. Reason: ", note)
-      Go_BasicEffectAdapter(
-        feature_table = feature_table,
-        metadata = metadata,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        covariates = covariates,
-        method = "wilcoxon",
-        effect_type = "log2FC",
-        notes = paste0("wilcoxon fallback (maaslin2 failed: ", note, ")"),
-        control = control,
-        alpha = alpha
-      )
+    failure_fun = function(note) {
+      message("[ConDA] WARNING: MaAsLin2 failed and was skipped. Reason: ", note)
+      Go_CreateSkippedAdapterResult(rownames(feature_table), "maaslin2", paste0("Failed and skipped: ", note))
     }
   )
 }
@@ -585,20 +515,8 @@ Go_DA_corncob_common <- function(feature_table, metadata, group_var, group_1, gr
                           method_key = "corncob_wald", test_type = "Wald") {
   native_check <- Go_ShouldUseNativeAdapter(method_key, feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: ", method_key, " skipped — running Wilcoxon fallback. Reason: ", native_check$note)
-    return(Go_BasicEffectAdapter(
-      feature_table = feature_table,
-      metadata = metadata,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      covariates = covariates,
-      method = "wilcoxon",
-      effect_type = "log2FC",
-      notes = paste0("wilcoxon fallback (", method_key, " skipped: ", native_check$note, ")"),
-      control = NULL,
-      alpha = alpha
-    ))
+    message("[ConDA] WARNING: ", method_key, " could not run and was skipped. Reason: ", native_check$note)
+    return(Go_CreateSkippedAdapterResult(rownames(feature_table), method_key, paste0("Skipped: ", native_check$note)))
   }
   Go_RunNativeAdapter(
     method_name = method_key,
@@ -696,21 +614,9 @@ Go_DA_corncob_common <- function(feature_table, metadata, group_var, group_1, gr
       }
       second_try
     },
-    fallback_fun = function(note) {
-      message("[ConDA] WARNING: ", method_key, " failed — running Wilcoxon fallback. Reason: ", note)
-      Go_BasicEffectAdapter(
-        feature_table = feature_table,
-        metadata = metadata,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        covariates = covariates,
-        method = "wilcoxon",
-        effect_type = "log2FC",
-        notes = paste0("wilcoxon fallback (", method_key, " failed: ", note, ")"),
-        control = NULL,
-        alpha = alpha
-      )
+    failure_fun = function(note) {
+      message("[ConDA] WARNING: ", method_key, " failed and was skipped. Reason: ", note)
+      Go_CreateSkippedAdapterResult(rownames(feature_table), method_key, paste0("Failed and skipped: ", note))
     }
   )
 }
@@ -748,20 +654,8 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
   control <- Go_GetDAMethodControls("deseq2", control)
   native_check <- Go_ShouldUseNativeAdapter("deseq2", feature_table, metadata, group_var, group_1, group_2)
   if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: DESeq2 skipped — running Wilcoxon fallback. Reason: ", native_check$note)
-    return(Go_BasicEffectAdapter(
-      feature_table = feature_table,
-      metadata = metadata,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      covariates = covariates,
-      method = "wilcoxon",
-      effect_type = "log2FC",
-      notes = paste0("wilcoxon fallback (deseq2 skipped: ", native_check$note, ")"),
-      control = NULL,
-      alpha = alpha
-    ))
+    message("[ConDA] WARNING: DESeq2 could not run and was skipped. Reason: ", native_check$note)
+    return(Go_CreateSkippedAdapterResult(rownames(feature_table), "deseq2", paste0("Skipped: ", native_check$note)))
   }
   Go_RunNativeAdapter(
     method_name = "DESeq2",
@@ -824,21 +718,9 @@ Go_DA_deseq2 <- function(feature_table, metadata, group_var, group_1, group_2,
       out$is_significant <- out$q_value < alpha
       out
     },
-    fallback_fun = function(note) {
-      message("[ConDA] WARNING: DESeq2 failed — running Wilcoxon fallback. Reason: ", note)
-      Go_BasicEffectAdapter(
-        feature_table = feature_table,
-        metadata = metadata,
-        group_var = group_var,
-        group_1 = group_1,
-        group_2 = group_2,
-        covariates = covariates,
-        method = "wilcoxon",
-        effect_type = "log2FC",
-        notes = paste0("wilcoxon fallback (deseq2 failed: ", note, ")"),
-        control = NULL,
-        alpha = alpha
-      )
+    failure_fun = function(note) {
+      message("[ConDA] WARNING: DESeq2 failed and was skipped. Reason: ", note)
+      Go_CreateSkippedAdapterResult(rownames(feature_table), "deseq2", paste0("Failed and skipped: ", note))
     }
   )
 }

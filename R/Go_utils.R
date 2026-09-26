@@ -662,7 +662,7 @@ Go_ShouldUseNativeAdapter <- function(method, feature_table, metadata, group_var
       ok = FALSE,
       note = paste0(
         "Native ", method, " skipped: smallest group has ", min_group_n,
-        " sample(s); using robust fallback."
+        " sample(s)."
       )
     ))
   }
@@ -671,7 +671,7 @@ Go_ShouldUseNativeAdapter <- function(method, feature_table, metadata, group_var
       ok = FALSE,
       note = paste0(
         "Native ", method, " skipped: only ", n_features,
-        " feature(s) retained after filtering; using robust fallback."
+        " feature(s) retained after filtering."
       )
     ))
   }
@@ -724,7 +724,7 @@ Go_DirectionFromEffect <- function(effect_size) {
   )
 }
 
-Go_CreateAdapterFallback <- function(feature_ids, method, note) {
+Go_CreateSkippedAdapterResult <- function(feature_ids, method, note) {
   out <- Go_StandardSchema(feature_ids)
   out$method <- method
   out$notes <- note
@@ -745,51 +745,6 @@ Go_EnsureStandardDA <- function(x, method, comparison, alpha) {
   x$comparison[is.na(x$comparison)] <- comparison
   x$is_significant <- ifelse(!is.na(x$q_value), x$q_value < alpha, FALSE)
   x
-}
-
-Go_BasicEffectAdapter <- function(feature_table, metadata, group_var, group_1, group_2,
-                                  method, effect_type, notes = NULL,
-                                  covariates = NULL, control = NULL, alpha = 0.05) {
-  prepared <- Go_PrepareDAInputs(
-    feature_table = feature_table,
-    metadata = metadata,
-    group_var = group_var,
-    group_1 = group_1,
-    group_2 = group_2,
-    covariates = covariates
-  )
-  ft <- prepared$feature_table
-  g1 <- prepared$metadata[[prepared$temp_group_var]] == "ref"
-  g2 <- prepared$metadata[[prepared$temp_group_var]] == "cmp"
-
-  effect_size <- log2(
-    (rowMeans(ft[, g2, drop = FALSE], na.rm = TRUE) + 1e-08) /
-      (rowMeans(ft[, g1, drop = FALSE], na.rm = TRUE) + 1e-08)
-  )
-  p_value <- apply(ft, 1, function(v) {
-    tryCatch(
-      stats::wilcox.test(v[g1], v[g2], exact = FALSE)$p.value,
-      error = function(e) NA_real_
-    )
-  })
-  q_value <- stats::p.adjust(p_value, method = "BH")
-
-  out <- Go_CreateBaseDAResult(
-    prepared = prepared,
-    method = method,
-    effect_type = effect_type,
-    notes = Go_CombineNotes(notes, Go_ControlNote(control))
-  )
-  out <- Go_FillDAResult(
-    base_result = out,
-    feature_ids = rownames(ft),
-    coef = effect_size,
-    effect_size = effect_size,
-    p_value = p_value,
-    q_value = q_value
-  )
-  out$is_significant <- out$q_value < alpha
-  out
 }
 
 Go_ControlNote <- function(control) {
@@ -1263,7 +1218,7 @@ Go_CreateQCPlotDir <- function(conda_dist_dir, group_1, group_2) {
   qc_dir
 }
 
-Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback_fun) {
+Go_RunNativeAdapter <- function(method_name, package_names, native_fun, failure_fun) {
   missing_pkgs <- package_names[!vapply(package_names, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing_pkgs) > 0) {
     stop(
@@ -1277,8 +1232,7 @@ Go_RunNativeAdapter <- function(method_name, package_names, native_fun, fallback
   tryCatch(
     suppressWarnings(suppressMessages(native_fun())),
     error = function(e) {
-      message("[ConDA] WARNING: Native ", method_name, " failed — result excluded from consensus. Reason: ", conditionMessage(e))
-      fallback_fun(
+      failure_fun(
         note = paste0("Native ", method_name, " adapter failed: ", conditionMessage(e))
       )
     }

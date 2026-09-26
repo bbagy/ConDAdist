@@ -581,8 +581,8 @@ filtering inside the adapter itself.
 ### Native Adapter Thresholds
 
 Before running a native method, `ConDA-dist` checks that there are enough
-samples and features to support it. If the check fails, a Wilcoxon fallback
-is triggered (see Fallback Behavior below).
+samples and features to support it. If the check fails, that method is skipped
+and the reason is reported (see Failure Behavior below).
 
 | Method    | Min samples per group | Min features |
 |-----------|-----------------------|--------------|
@@ -737,45 +737,34 @@ Interpretation:
 - Still best interpreted as a supportive count-model DA method. It is not
   microbiome-native but is widely used as a reference in benchmarks.
 
-## Fallback Behavior
+## Failure Behavior
 
 When a native DA method cannot run — due to insufficient sample size, too few
-features, missing package, or a runtime error — `ConDA-dist` runs a Wilcoxon
-rank-sum test as a transparent fallback instead of silently substituting a
-result under the original method name.
+features, or a runtime error — `ConDA-dist` skips that method instead of
+silently substituting a different statistical test.
 
-Fallback result labeling:
+Skipped-method reporting:
 
-- `method` column is set to `"wilcoxon"` (not the original method name)
+- `method` retains the requested method name
+- p-values, q-values and effect sizes are `NA`
 - `notes` column records which method failed and why
 - A `[ConDA] WARNING` message is printed to the console
 
 Example console output:
 
 ```
-[ConDA] WARNING: DESeq2 skipped — running Wilcoxon fallback. Reason: Native deseq2 skipped: smallest group has 3 sample(s); using robust fallback.
+[ConDA] WARNING: DESeq2 could not run and was skipped. Reason: Native deseq2 skipped: smallest group has 3 sample(s).
 ```
 
-What the Wilcoxon fallback does:
-
-- Effect size: `log2(mean(group2) / mean(group1))` with a small pseudocount
-- P-value: Wilcoxon rank-sum test per feature
-- Q-value: BH correction across all features
-- Bridge file: written as `wilcoxon.(...).csv` for `Go_volcanoPlot`
-
-Fallback results in consensus:
-
-- `"wilcoxon"` is not a requested method, so it does not enter the DA
-  consensus scoring.
-- Its bridge file is still exported and rendered into a separate volcano plot
-  for visual inspection.
+Skipped methods retain their planned consensus slot but contribute no evidence;
+their missing family-level p-value is handled conservatively as `p = 1`.
+No substitute Wilcoxon CSV or volcano plot is created.
 
 This design ensures that:
 
-- Results are always honest about which method actually ran.
-- Visualization is still available even when a method fails.
-- Consensus scoring is never polluted by a Wilcoxon result pretending to be
-  a model-based method.
+- A successful-looking substitute analysis cannot hide native method failure.
+- Results remain explicit about which requested methods actually ran.
+- Consensus scoring is not polluted by evidence from a different test.
 
 ## Return Value
 

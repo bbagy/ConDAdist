@@ -76,6 +76,10 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
   if (!isTRUE(write_consensus) && length(unique_methods) == 1) {
     method <- unique_methods[1]
     x <- da_table[da_table$method == method, , drop = FALSE]
+    if (all(is.na(x$p_value)) && all(is.na(x$effect_size))) {
+      message("[ConDA] Volcano output skipped for ", method, ": no native result was available.")
+      return(list(dir = single_bridge_dir, files = files))
+    }
     if (!"ASV" %in% colnames(x) || all(is.na(x$ASV) | !nzchar(x$ASV))) {
       x$ASV <- x$feature_id
     }
