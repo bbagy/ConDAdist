@@ -174,7 +174,7 @@ Go_BetaContribution <- function(feature_table, metadata, group_var, group_1, gro
     n_features = length(feature_ids)
   )
 
-  # dist_matrices를 keep 샘플로 서브셋 후 전달 (차원 일치 보장)
+  # Restrict distance matrices to the retained samples.
   dist_matrices_sub <- lapply(beta_distances$distance_matrices, function(dm) {
     if (is.null(dm)) return(NULL)
     stats::as.dist(as.matrix(dm)[keep, keep, drop = FALSE])
@@ -240,16 +240,8 @@ Go_Dist_jsd <- function(feature_table, phy_tree = NULL) {
     return(stats::as.dist(out))
   }
 
-  ## JSD(p,q) = H((p+q)/2) - 0.5*H(p) - 0.5*H(q), with Shannon entropy
-  ## H(x) = -sum(x*log(x)). Mathematically equivalent to the KL-based
-  ## definition but lets each row of the i-vs-rest comparison be computed
-  ## in one vectorized pass instead of a per-sample-pair R loop -- this
-  ## distance gets recomputed thousands of times by the LOO/permutation
-  ## machinery in Go_BetaContribution(), so the per-call cost compounds
-  ## heavily (unlike bray/jaccard, which reuse compiled vegan::vegdist()).
-  ## All entries of P are guaranteed > 0 by the +0.5 pseudocount above, so
-  ## no zero-guard is needed here (verified: identical to the old
-  ## zero-guarded KL-divergence loop to floating-point precision).
+  # JSD(p,q) = H((p+q)/2) - (H(p)+H(q))/2; H(x) = -sum(x*log(x)).
+  # The upstream pseudocount keeps P positive, so no zero guard is needed.
   H <- function(mat) -rowSums(mat * log(mat))
   Hp <- H(P)
 

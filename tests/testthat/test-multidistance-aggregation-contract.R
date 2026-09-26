@@ -1,18 +1,5 @@
-# Regression guard for the multi-distance aggregation contract.
-#
-# Production code (Go_LeaveOneTaxonOutScore, Go_utils.R) was ALWAYS correct:
-# when multiple distance metrics are requested, their raw per-feature
-# leave-one-taxon-out separation deltas are summed and divided by the metric
-# count BEFORE a single Go_NormalizeVector() percentile-clip normalization.
-# This was never a bug in this package. The bug (found 2026-08-21) was in a
-# downstream research benchmark script that reimplemented distance scoring by
-# calling Go_BetaDistance/Go_BetaContribution once per single metric and
-# linearly recombining the already-normalized per-metric scores -- NOT
-# equivalent, since percentile-clip normalization is nonlinear. That script
-# was fixed to call this package's functions jointly instead of
-# reimplementing them. This test locks the contract those callers now rely
-# on, so a future refactor here cannot silently reintroduce the
-# per-metric-normalize-then-average behavior.
+# Average raw leave-one-taxon-out deltas across distances before applying
+# percentile-clip normalization, which is nonlinear.
 
 make_ft <- function(n_taxa = 10, n_samples = 10, seed = 42) {
   set.seed(seed)

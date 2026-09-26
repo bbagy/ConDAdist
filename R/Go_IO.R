@@ -92,12 +92,8 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
     x$comparison_token <- comparison_token
     x <- Go_RenameGroupColumns(x, group_1, group_2)
 
-    # For methods that use internal multiple-testing correction (e.g. DESeq2 independent
-    # filtering), q_value can be NA for low-count features that were removed from the BH
-    # correction set.  NA q-values cause ggplot2 shape aesthetics to drop those rows
-    # entirely, making the volcano look empty.  We fall back to an external BH adjustment
-    # over all features that have a valid p_value so that every tested feature gets a
-    # non-NA FDR estimate (Gotools behaviour).
+    # Fill missing q-values for tested features so plots retain their rows.
+    # DESeq2 independent filtering can leave q-values undefined.
     .fill_q <- function(pv, qv) {
       na_q <- is.na(qv) & !is.na(pv)
       if (any(na_q)) {

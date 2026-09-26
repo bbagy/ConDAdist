@@ -1,12 +1,4 @@
-# ==============================================================================
-# Go_Consensus.R  — internal engine V5
-#
-# Unified JSD-line consensus core:
-#   - configurable p-value combination, including family partial conjunction
-#   - combined_effect_rank retained from V2_JSD
-#   - effect_consistency returns 0 (not 1) when no methods are significant
-#   - legacy cauchy_* columns retained for downstream compatibility
-# ==============================================================================
+# Consensus calculations and compatibility columns.
 
 # ------------------------------------------------------------------------------
 # Go_CombinePValuesFisher

@@ -38,10 +38,7 @@ make_da_table <- function(n = 10, seed = 1) {
 }
 
 make_da_consensus_v2 <- function(n = 6) {
-  ## combined_p/combined_q are what Go_FinalScore() actually reads;
-  ## cauchy_combined_p/q are the V1_JSD compatibility aliases that the real
-  ## Go_DAConsensus() output always mirrors from them (Go_Consensus.R:182-183)
-  ## -- kept identical here so this fixture matches real pipeline output shape.
+  # Match the consensus output's mirrored cauchy_* compatibility columns.
   combined_p_vals <- c(0.01, 0.04, 0.6, 0.001, 0.03, 0.9)[1:n]
   combined_q_vals <- c(0.03, 0.06, 0.7, 0.006, 0.05, 0.95)[1:n]
   data.frame(
@@ -124,14 +121,12 @@ test_that("Go_MethodSignature single method returns full name", {
   expect_equal(Go_MethodSignature("aldex2"),   "aldex2")
   expect_equal(Go_MethodSignature("ancombc2"), "ancombc2")
   expect_equal(Go_MethodSignature("maaslin2"), "maaslin2")
-  # bare "corncob" is an intentional alias for corncob_lrt (matches
-  # Go_DA_corncob() in Go_DA_adapters.R, and Go_ResolveMethods() below) --
-  # the resolved name is what should come back, not the literal input.
+  # The corncob alias resolves to corncob_lrt.
   expect_equal(Go_MethodSignature("corncob"),  "corncob_lrt")
 })
 
 test_that("Go_MethodSignature multi-method uses fixed-order initials DANML", {
-  # "corncob" resolves to corncob_lrt (letter L) -- see note above.
+  # The corncob alias contributes the L in the signature.
   expect_equal(Go_MethodSignature(c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob")), "DANML")
   expect_equal(Go_MethodSignature(c("deseq2", "corncob")), "DL")
   expect_equal(Go_MethodSignature(c("aldex2", "ancombc2")), "AN")
@@ -146,8 +141,7 @@ test_that("Go_MethodSignature normalises maaslin alias", {
 
 test_that("Go_ResolveMethods deduplicates and lowercases", {
   expect_equal(Go_ResolveMethods(c("DESeq2", "deseq2")), "deseq2")
-  # "corncob" resolves to corncob_lrt -- intentional alias, see
-  # Go_MethodSignature test above.
+  # Resolve the corncob alias consistently.
   expect_equal(Go_ResolveMethods(c("ALDEX2", "corncob")), c("aldex2", "corncob_lrt"))
 })
 
@@ -758,9 +752,7 @@ test_that("Go_WeightSensitivity feature mapping is correct (not sorted order)", 
   # All features except t1 have identical scores → t1 should consistently rank 1st.
   # If feature mapping were wrong, t1's rank would be assigned to a different feature.
   da_consensus <- make_da_consensus_v2(4)
-  # Force t1 to stand out: highest cauchy signal, highest combined_effect_rank
-  # (combined_q is what Go_FinalScore() actually reads; cauchy_combined_q is
-  # kept in sync since the real pipeline always mirrors the two)
+  # Give t1 the strongest consensus evidence and keep compatibility columns aligned.
   da_consensus$combined_q[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$cauchy_combined_q[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$is_combined_significant[da_consensus$feature_id == "t1"] <- TRUE

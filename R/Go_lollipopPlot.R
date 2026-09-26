@@ -295,18 +295,18 @@ Go_lollipopPlot <- function(project,
       }
       p_col <- if ("fisher_combined_p" %in% colnames(df)) "fisher_combined_p" else "combined_p"
       q_col <- if ("fisher_combined_q" %in% colnames(df)) "fisher_combined_q" else "combined_q"
-      # CSV 파일명(condadist.{sig}.(...).csv)에서 method/dist 시그니처 추출
+      # Extract the method/distance signature from the CSV filename.
       conda_sig <- if (!is.null(source_name)) {
         m <- regmatches(source_name, regexpr("^condadist\\.(.+?)(?=\\.\\()", source_name, perl = TRUE))
         if (length(m) == 1 && nzchar(m)) sub("^condadist\\.", "", m) else ""
       } else ""
-      # 시그니처를 method 부분(대문자)과 distance 부분(소문자)으로 분리
+      # Split the signature into method and distance components.
       conda_parts <- if (nzchar(conda_sig)) strsplit(conda_sig, "\\.")[[1]] else character(0)
       conda_method_part <- if (length(conda_parts) >= 1) conda_parts[1] else ""
       conda_dist_parts  <- if (length(conda_parts) >= 2) conda_parts[-1] else character(0)
-      # 이미지 title: DANMC 등 method abbreviation만 사용
+      # Use the method abbreviation in the plot title.
       title_tool <- if (nzchar(conda_method_part)) conda_method_part else "ConDA-dist"
-      # subtitle: dist 정보 (있을 때만)
+      # Include distance information in the subtitle when available.
       conda_subtitle <- if (length(conda_dist_parts) > 0) paste("dist:", paste(conda_dist_parts, collapse = " \u00b7 ")) else ""
       file_tool <- if (nzchar(conda_sig)) paste0("ConDA-dist.", conda_sig) else "ConDA-dist"
       out_subdir <- "ConDa_plot"

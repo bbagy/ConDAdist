@@ -395,9 +395,7 @@ Go_CDDPresetDefinitions <- function() {
     calibration = "conservative_general_default"
   )
   list(
-    ## "full_cdd" is the reader-facing preset name used in the manuscript.
-    ## "broad_panel" is kept as an exact-duplicate alias, not deprecated, so
-    ## every existing script and stored result keeps resolving identically.
+    # Keep broad_panel as an alias for the full_cdd preset.
     full_cdd = broad_panel_config,
     broad_panel = broad_panel_config
   )
@@ -1814,24 +1812,8 @@ Go_NormalizeVector <- function(x, clip_probs = c(0.05, 0.95)) {
   if (n_finite == 0) return(rep(0, n))
   result <- rep(0, n)
   vals <- x[finite_idx]
-  ## Robust min-max: scale relative to the 5th-95th percentile range, then
-  ## clamp to [0,1] -- not plain rank(x)/n (percentile rank), and not
-  ## plain min-max either. Two artifacts were found in sequence:
-  ##  1. percentile rank forces a uniform 0-1 distribution regardless of
-  ##     x's true spread, so any downstream >=0.5 threshold always split
-  ##     the data ~50/50 by construction (Structure_driver counts scaled
-  ##     with dataset size, not real signal -- docs/20260813_stage3_...,
-  ##     section D/L).
-  ##  2. plain min-max, tried as the fix, turned out to be wrecked by
-  ##     heavy-tailed inputs (e.g. -log10(q): one feature at q=1e-108 next
-  ##     to a median significant feature at q=1e-7 crushes that median
-  ##     feature's score to ~0.07, not "clearly significant" -- verified
-  ##     on cdi_schubert, where this collapsed Core_consensus from 1164 to
-  ##     7 features across 18 datasets, section L continuation). Clipping
-  ##     to the 5th-95th percentile before scaling keeps a handful of
-  ##     extreme values from setting the whole scale, while still letting
-  ##     genuine 0-vs-100%-flat inputs collapse toward a single value
-  ##     rather than being forced apart.
+  # Scale within the quantile bounds so extreme values do not determine
+  # the range; unlike percentile ranks, this preserves the bulk's spread.
   bounds <- stats::quantile(vals, probs = clip_probs, na.rm = TRUE, names = FALSE, type = 7)
   lo <- bounds[1]; hi <- bounds[2]
   result[finite_idx] <- if (hi > lo) {

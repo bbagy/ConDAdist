@@ -31,8 +31,7 @@ Go_ConDaQCplot <- function(result,
   }
   final_scores$plot_label <- Go_SelectPlotLabel(final_scores, label_col = label_col)
   final_scores$plot_label[is.na(final_scores$plot_label) | !nzchar(final_scores$plot_label)] <- final_scores$feature_id[is.na(final_scores$plot_label) | !nzchar(final_scores$plot_label)]
-  # feature_id를 breaks, plot_label을 display용 named vector로 유지
-  # plot_label_unique는 volcano/scatter용 텍스트 라벨에만 사용
+  # Keep feature IDs as plot positions; use unique labels only for text annotations.
   final_scores$plot_label_unique <- Go_MakeUniqueLabels(final_scores$plot_label, final_scores$feature_id)
   q_col <- if ("combined_q" %in% colnames(final_scores)) "combined_q" else "cauchy_combined_q"
   p_col <- if ("combined_p" %in% colnames(final_scores)) "combined_p" else "cauchy_combined_p"
@@ -132,7 +131,7 @@ Go_ConDaQCplot <- function(result,
     ) +
     base_theme
 
-  # feature_id → display label 매핑 (breaks = feature_id, labels = taxonomy name)
+  # Map feature IDs to taxonomy labels for the axis.
   label_map <- stats::setNames(final_scores$plot_label, final_scores$feature_id)
 
   overlap_df <- Go_BuildMethodOverlapLong(final_scores, da_table)
@@ -173,7 +172,7 @@ Go_ConDaQCplot <- function(result,
   top_df <- final_scores[order(-final_scores$priority_score), , drop = FALSE]
   top_df <- utils::head(top_df, top_n)
   top_label_map <- stats::setNames(top_df$plot_label, top_df$feature_id)
-  # feature_id를 factor로 사용 → 중복 없음, 에러 없음
+  # Factor levels use unique feature IDs, not potentially repeated labels.
   top_df$feature_id_fct <- factor(top_df$feature_id, levels = rev(top_df$feature_id))
   p_bar <- ggplot2::ggplot(
     top_df,
@@ -373,8 +372,7 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
       )
     )
   )
-  # Step 1: save HTML + lib/ directly to the output path
-  # (htmltools::save_html writes plotly.js into libdir = "lib/" next to the file)
+  # Save HTML with local dependencies before attempting self-containment.
   htmltools::save_html(doc, file = file)
 
   if (!file.exists(file)) {
@@ -382,9 +380,7 @@ Go_SaveQCPanelHTML <- function(plots, file, plot_width = 900, plot_height = 600)
     return(invisible(NULL))
   }
 
-  # Step 2: try pandoc to embed lib/ resources inline (single self-contained file)
-  # If it succeeds, the lib/ dir becomes unnecessary but is left in place.
-  # If it fails, the HTML + lib/ pair already works when opened locally.
+  # If pandoc fails, the HTML and local dependencies remain usable together.
   if (requireNamespace("rmarkdown", quietly = TRUE)) {
     pandoc_info <- tryCatch(rmarkdown::find_pandoc(), error = function(e) NULL)
     pandoc_ver  <- tryCatch(numeric_version(pandoc_info$version), error = function(e) NULL)
