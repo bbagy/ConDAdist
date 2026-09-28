@@ -493,7 +493,7 @@ Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
         base_result = out,
         feature_ids = res$feature,
         coef = res$coef,
-        effect_size = -res$coef,
+        effect_size = res$coef,  # coefficient for cmp (group_2) vs ref: positive = up in group_2
         p_value = res$pval,
         q_value = res$qval
       )
@@ -577,7 +577,7 @@ Go_DA_corncob_common <- function(feature_table, metadata, group_var, group_1, gr
           base_result = out,
           feature_ids = rownames(prepared$feature_table),
           coef = coef_tab[, "estimate"],
-          effect_size = -coef_tab[, "estimate"],
+          effect_size = coef_tab[, "estimate"],  # mu coefficient for cmp (group_2): positive = up in group_2
           p_value = unname(fit$p[rownames(prepared$feature_table)]),
           q_value = unname(fit$p_fdr[rownames(prepared$feature_table)])
         )

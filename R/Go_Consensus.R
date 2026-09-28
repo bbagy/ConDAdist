@@ -327,7 +327,7 @@ Go_DAConsensus <- function(da_table,
 Go_FinalScore <- function(da_consensus, beta_contribution,
                           method_annotation = NULL,
                           beta_enabled = TRUE,
-                          weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15)) {
+                          weights = c(da = 0.5, beta = 0.1, direction = 0.4, effect = 0)) {
   required_names <- c("da", "beta", "direction", "effect")
   if (!all(required_names %in% names(weights))) {
     stop("weights must be a named numeric vector with elements: ",
@@ -373,9 +373,7 @@ Go_FinalScore <- function(da_consensus, beta_contribution,
   }
   merged$beta_contribution_score[is.na(merged$beta_contribution_score)] <- 0
 
-  combined_q    <- ifelse(is.na(merged$combined_q), 1, merged$combined_q)
-  neg_log_q     <- -log10(pmax(combined_q, 1e-300))
-  merged$combined_da_score <- Go_NormalizeVector(neg_log_q)
+  merged$combined_da_score <- Go_DAEvidenceScore(merged$combined_p)
   merged$cauchy_da_score   <- merged$combined_da_score
 
   # V1_JSD compatibility: when Fisher was used for p-value combination,

@@ -753,6 +753,8 @@ test_that("Go_WeightSensitivity feature mapping is correct (not sorted order)", 
   # If feature mapping were wrong, t1's rank would be assigned to a different feature.
   da_consensus <- make_da_consensus_v2(4)
   # Give t1 the strongest consensus evidence and keep compatibility columns aligned.
+  da_consensus$combined_p[da_consensus$feature_id == "t1"] <- 1e-10
+  da_consensus$cauchy_combined_p[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$combined_q[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$cauchy_combined_q[da_consensus$feature_id == "t1"] <- 1e-10
   da_consensus$is_combined_significant[da_consensus$feature_id == "t1"] <- TRUE

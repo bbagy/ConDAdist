@@ -9,7 +9,7 @@ Go_FinalScore(
   beta_contribution,
   method_annotation = NULL,
   beta_enabled = TRUE,
-  weights = c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15)
+  weights = c(da = 0.5, beta = 0.1, direction = 0.4, effect = 0)
 )
 }
 \description{

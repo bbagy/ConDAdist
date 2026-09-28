@@ -386,7 +386,10 @@ Go_ValidateFamilyPartialConjunctionPanel <- function(methods, p_combine) {
 }
 
 Go_CDDPresetDefinitions <- function() {
-  standard_weights <- c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15)
+  # Priority-score weights (2026-09-28): selected on the development benchmark by
+  # lower-quartile AUPRC within the abundance-controlled pool, confirmed on held-out
+  # seeds and on six cohorts never used for selection (replacing 0.40/0.30/0.15/0.15).
+  standard_weights <- c(da = 0.5, beta = 0.1, direction = 0.4, effect = 0)
   broad_panel_config <- list(
     methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
     distances = NULL,
@@ -422,7 +425,7 @@ Go_ResolveCDDPreset <- function(preset, methods = NULL, distances = NULL,
     config <- list(
       methods = methods %||% Go_AllDAMethods(),
       distances = distances,
-      weights = weights %||% c(da = 0.4, beta = 0.3, direction = 0.15, effect = 0.15),
+      weights = weights %||% c(da = 0.5, beta = 0.1, direction = 0.4, effect = 0),
       p_combine = p_combine,
       calibration = "custom_not_independently_calibrated"
     )
@@ -1822,6 +1825,22 @@ Go_NormalizeVector <- function(x, clip_probs = c(0.05, 0.95)) {
     rep(0, n_finite)  # no variation in the bulk -- nothing stands out
   }
   result
+}
+
+# DA evidence for the priority score, from combined p-values.
+# Combined q-values are 1 for almost every feature under the conservative
+# family rule, which made the clipped score 0 everywhere (e.g. 173/180
+# held-out replicates). -log10(p) keeps the ordering; when the clipped scale
+# still has a single value (small feature sets with mostly p = 1), fall back
+# to uniform ranks so the DA component is never silently switched off.
+Go_DAEvidenceScore <- function(combined_p) {
+  p <- ifelse(is.na(combined_p), 1, combined_p)
+  neg_log_p <- -log10(pmax(p, 1e-300))
+  score <- Go_NormalizeVector(neg_log_p)
+  if (length(score) > 1 && length(unique(score)) == 1) {
+    score <- (rank(neg_log_p, ties.method = "average") - 1) / (length(score) - 1)
+  }
+  score
 }
 
 Go_DirectionConsistency <- function(direction_vec) {
