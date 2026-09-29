@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="inst/logo/ConDA-dist_logo.png" alt="ConDA-dist logo" width="460">
+</p>
+
 # ConDA-dist
 
 `ConDA-dist` is a microbiome differential abundance framework for single-method
