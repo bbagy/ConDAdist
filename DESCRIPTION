@@ -29,7 +29,6 @@ Suggests:
     ALDEx2,
     ANCOMBC,
     DESeq2,
-    Maaslin2,
     S4Vectors,
     corncob,
     htmltools,

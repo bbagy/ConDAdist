@@ -263,7 +263,6 @@ Go_PrepareDAInputs <- function(feature_table, metadata, group_var, group_1, grou
 }
 
 Go_GetDAMethodControls <- function(method, control = NULL) {
-  method <- if (identical(method, "maaslin")) "maaslin2" else method
   method <- if (identical(method, "corncob")) "corncob_wald" else method
   defaults <- switch(
     method,
@@ -288,15 +287,6 @@ Go_GetDAMethodControls <- function(method, control = NULL) {
       zero_replace = FALSE,
       zero_replace_value = 0.5,
       seed = 1L
-    ),
-    maaslin2 = list(
-      min_abundance = 0,
-      min_prevalence = 0,
-      normalization = "TSS",
-      transform = "LOG",
-      analysis_method = "LM",
-      max_significance = 1,
-      standardize = FALSE
     ),
     corncob_wald = list(
       phi_formula = "auto",
@@ -485,10 +475,6 @@ Go_PrepareMethodInput <- function(prepared, method, control = list()) {
     out$design_formula <- stats::as.formula(
       paste("~", paste(vapply(design_terms, Go_BacktickName, character(1)), collapse = " + "))
     )
-  }
-
-  if (method %in% c("maaslin", "maaslin2")) {
-    out$sample_feature_data <- as.data.frame(t(ft))
   }
 
   if (method %in% c("corncob", "corncob_wald", "corncob_lrt")) {
@@ -697,7 +683,6 @@ Go_ShouldUseNativeAdapter <- function(method, feature_table, metadata, group_var
     corncob_wald = list(min_group_n = 3L, min_features = 10L),
     corncob_lrt = list(min_group_n = 3L, min_features = 10L),
     deseq2 = list(min_group_n = 3L, min_features = 5L),
-    maaslin2 = list(min_group_n = 2L, min_features = 2L),
     aldex2 = list(min_group_n = 2L, min_features = 2L),
     list(min_group_n = 2L, min_features = 2L)
   )
@@ -870,7 +855,11 @@ Go_ResolveMethods <- function(methods) {
     return(character(0))
   }
   methods <- unique(tolower(as.character(methods)))
-  methods[methods == "maaslin"] <- "maaslin2"
+  if (any(methods %in% c("maaslin", "maaslin2"))) {
+    stop("MaAsLin2 is no longer supported in ConDA-dist (it was not part of the ",
+         "evaluated method panel). Use deseq2, aldex2, ancombc2, corncob_wald ",
+         "and/or corncob_lrt.")
+  }
   methods[methods == "corncob"] <- "corncob_lrt"
   methods
 }
@@ -964,14 +953,13 @@ Go_ComparisonLabel <- function(group_1, group_2) {
 
 Go_MethodSignature <- function(methods) {
   methods <- unique(tolower(as.character(methods)))
-  methods[methods == "maaslin"] <- "maaslin2"
   methods[methods == "corncob"] <- "corncob_lrt"
-  ordered_methods <- c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob_wald", "corncob_lrt")
+  ordered_methods <- c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt")
   methods <- ordered_methods[ordered_methods %in% methods]
   if (length(methods) <= 1) {
     return(methods[1] %||% "condadist")
   }
-  map <- c(deseq2 = "D", aldex2 = "A", ancombc2 = "N", maaslin2 = "M", corncob_wald = "W", corncob_lrt = "L")
+  map <- c(deseq2 = "D", aldex2 = "A", ancombc2 = "N", corncob_wald = "W", corncob_lrt = "L")
   paste0(unname(map[methods]), collapse = "")
 }
 
@@ -1059,24 +1047,6 @@ Go_FindGoToolsVolcanoPath <- function() {
   hit
 }
 
-Go_FindGoToolsMaaslinPath <- function() {
-  candidates <- c(
-    file.path(getwd(), "..", "Gotools", "R", "Go_Maaslin2_V2.R"),
-    file.path(getwd(), "..", "..", "Gotools", "R", "Go_Maaslin2_V2.R"),
-    "/Users/heekukpark/Documents/Myscripts/Gotools/R/Go_Maaslin2_V2.R"
-  )
-  candidates <- unique(normalizePath(candidates, winslash = "/", mustWork = FALSE))
-  hit <- candidates[file.exists(candidates)][1]
-  if (is.na(hit) || !nzchar(hit)) {
-    return(NULL)
-  }
-  hit
-}
-
-Go_IsNativeMaaslinSingleMode <- function(methods, distances) {
-  identical(Go_ResolveMethods(methods), "maaslin2") && is.null(distances)
-}
-
 Go_BuildRandomFormula <- function(random_effects) {
   random_effects <- unique(as.character(random_effects))
   random_effects <- random_effects[!is.na(random_effects) & nzchar(random_effects)]
@@ -1084,128 +1054,6 @@ Go_BuildRandomFormula <- function(random_effects) {
     return(NULL)
   }
   paste(vapply(random_effects, function(x) sprintf("(1|%s)", Go_BacktickName(x)), character(1)), collapse = " + ")
-}
-
-Go_RunNativeMaaslinSingle <- function(psIN, project, group_var, group_1, group_2,
-                                      covariates = NULL, random_effects = NULL,
-                                      name = NULL) {
-  maaslin_path <- Go_FindGoToolsMaaslinPath()
-  if (is.null(maaslin_path)) {
-    stop("Go_Maaslin2_V2.R was not found.")
-  }
-  if (!requireNamespace("phyloseq", quietly = TRUE)) {
-    stop("phyloseq is required for native MaAsLin2 single mode.")
-  }
-
-  env <- new.env(parent = globalenv())
-  sys.source(maaslin_path, envir = env)
-  if (!exists("Go_Maaslin2", envir = env, inherits = FALSE)) {
-    stop("Go_Maaslin2 was not loaded from Gotools.")
-  }
-
-  target_levels <- unique(as.character(group_2))
-  keep_levels <- unique(c(group_1, target_levels))
-  metadata_df <- as.data.frame(phyloseq::sample_data(psIN))
-  keep_cols <- unique(c(group_var, covariates, random_effects))
-  keep_cols <- keep_cols[!is.na(keep_cols) & nzchar(keep_cols) & keep_cols %in% colnames(metadata_df)]
-  keep_samples <- rownames(metadata_df)[metadata_df[[group_var]] %in% keep_levels]
-  ps_sub <- phyloseq::prune_samples(keep_samples, psIN)
-
-  if (length(keep_cols) > 0) {
-    meta_sub <- as.data.frame(phyloseq::sample_data(ps_sub))
-    keep_complete <- stats::complete.cases(meta_sub[, keep_cols, drop = FALSE])
-    ps_sub <- phyloseq::prune_samples(rownames(meta_sub)[keep_complete], ps_sub)
-  }
-
-  safe_tag <- function(x) {
-    x <- gsub("[^A-Za-z0-9+._-]", "_", x)
-    gsub("__+", "_", x)
-  }
-  tag_FE <- function(fx) sprintf("(FE=%s)", safe_tag(paste(fx, collapse = "+")))
-  tag_RE <- function(re) {
-    if (is.null(re) || length(re) == 0) "(RE=None)" else sprintf("(RE=%s)", safe_tag(paste(re, collapse = "+")))
-  }
-
-  fixed_effects <- c(group_var, covariates)
-  orders <- keep_levels
-  out_root <- sprintf("%s_%s", Go_SanitizeName(project), format(Sys.Date(), "%y%m%d"))
-  out_dir <- file.path(
-    out_root, "table", "MaAsLin2",
-    sprintf(
-      "%s.%s.%s",
-      if (is.null(name) || !nzchar(name)) "MaAsLin2.Base" else sprintf("MaAsLin2.%s", safe_tag(name)),
-      tag_FE(fixed_effects),
-      tag_RE(random_effects)
-    )
-  )
-
-  env$Go_Maaslin2(
-    psIN = ps_sub,
-    project = project,
-    fixed_effects = fixed_effects,
-    random_effects = random_effects,
-    orders = orders,
-    out_dir = out_dir,
-    name = name,
-    combination = NULL,
-    global = FALSE
-  )
-
-  out_dir
-}
-
-Go_ExportNativeMaaslin2VolcanoBridge <- function(native_dir, bridge_dir, psIN,
-                                                 group_var, group_1, group_2,
-                                                 name = NULL) {
-  results_file <- file.path(native_dir, "all_results.csv")
-  if (!file.exists(results_file)) {
-    stop("Native MaAsLin2 results were not found: all_results.csv")
-  }
-
-  df <- utils::read.csv(results_file, check.names = FALSE, stringsAsFactors = FALSE)
-  df <- df[df$metadata == group_var, , drop = FALSE]
-  if (nrow(df) == 0) {
-    stop("No rows for group_var were found in native MaAsLin2 results.")
-  }
-
-  target_levels <- unique(as.character(group_2))
-  df <- df[df$value %in% target_levels, , drop = FALSE]
-  if (nrow(df) == 0) {
-    stop("No requested target levels were found in native MaAsLin2 results.")
-  }
-
-  taxonomy <- NULL
-  if (inherits(psIN, "phyloseq")) {
-    taxonomy <- Go_ExtractTaxonomyTable(psIN)
-  }
-
-  dir.create(bridge_dir, recursive = TRUE, showWarnings = FALSE)
-  files <- list()
-
-  for (target in unique(df$value)) {
-    x <- df[df$value == target, , drop = FALSE]
-    x$feature_id <- x$feature
-    x$ASV <- x$feature
-    x$maaslin2_coef <- x$coef
-    x$maaslin2_pvalue <- x$pval
-    x$maaslin2_qvalue <- x$qval
-    x$maaslin2.P <- ifelse(x$pval < 0.05, ifelse(x$coef >= 0, "up", "down"), "NS")
-    x$maaslin2.FDR <- ifelse(x$qval < 0.05, ifelse(x$coef >= 0, "up", "down"), "NS")
-    x$basline <- group_1
-    x$smvar <- target
-    x$mvar <- group_var
-    x$name_token <- if (is.null(name)) NA_character_ else as.character(name)
-    x$comparison_token <- paste0(group_1, ".vs.", target, if (is.null(name) || !nzchar(name)) "" else paste0(".", name))
-    if (!is.null(taxonomy)) {
-      x <- Go_AppendTaxonomy(x, taxonomy)
-    }
-    comparison_stub <- paste0("(", x$comparison_token[1], ")")
-    file <- file.path(bridge_dir, paste0("maaslin2.", comparison_stub, ".volcano_bridge.csv"))
-    utils::write.csv(x, file, row.names = FALSE)
-    files[[target]] <- file
-  }
-
-  list(dir = bridge_dir, files = files)
 }
 
 Go_RunVolcanoPlotBridge <- function(project, bridge_dir, comparison_name = NULL, name = NULL) {
@@ -1285,7 +1133,6 @@ Go_DependencyList <- function() {
       "S4Vectors",   # required by DESeq2 adapter
       "ALDEx2",      # DA method
       "ANCOMBC",     # DA method (includes ancombc2 + pulls in CVXR)
-      "Maaslin2",    # DA method
       "BiocParallel" # used by several Bioc methods
     ),
     # CRAN
@@ -1520,7 +1367,6 @@ Go_GetRetryPlan <- function(prevalence, abundance, method_controls = NULL) {
   stable_controls <- list(
     ancombc2 = list(struc_zero = FALSE, pseudo = 1, pseudo_sens = FALSE),
     aldex2 = list(zero_replace = TRUE, zero_replace_value = 0.5, mc_samples = 128L),
-    maaslin2 = list(normalization = "TSS", transform = "LOG", min_prevalence = 0.05),
     corncob_wald = list(phi_formula = "~ 1", phi_null_formula = "~ 1", test_type = "Wald", filter_discriminant = TRUE, boot = FALSE),
     corncob_lrt = list(phi_formula = "~ 1", phi_null_formula = "~ 1", test_type = "LRT", filter_discriminant = TRUE, boot = FALSE),
     deseq2 = list(size_factors_type = "poscounts", min_count = 1)

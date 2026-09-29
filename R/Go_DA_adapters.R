@@ -54,7 +54,6 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
   adapters <- list(
     ancombc2 = Go_DA_ancombc2,
     aldex2 = Go_DA_aldex2,
-    maaslin2 = Go_DA_maaslin,
     corncob_wald = Go_DA_corncob_wald,
     corncob_lrt = Go_DA_corncob_lrt,
     corncob = Go_DA_corncob,
@@ -65,7 +64,6 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
   required_packages <- list(
     ancombc2 = c("ANCOMBC", "phyloseq"),
     aldex2   = c("ALDEx2", "phyloseq"),
-    maaslin2 = c("Maaslin2", "phyloseq"),
     corncob_wald = c("corncob", "phyloseq"),
     corncob_lrt  = c("corncob", "phyloseq"),
     corncob  = c("corncob", "phyloseq"),
@@ -73,7 +71,7 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
   )
   random_effects <- unique(as.character(random_effects))
   random_effects <- random_effects[!is.na(random_effects) & nzchar(random_effects)]
-  random_capable <- c("ancombc2", "maaslin2")
+  random_capable <- "ancombc2"
   unsupported_random <- if (length(random_effects) > 0L) {
     setdiff(methods, random_capable)
   } else {
@@ -135,7 +133,6 @@ Go_RunDAmethods <- function(feature_table, metadata, group_var, group_1, group_2
         random_effects = random_effects,
         covariates = covariates,
         control = method_controls[[method]] %||%
-          if (identical(method, "maaslin2")) method_controls[["maaslin"]] else
           if (identical(method, "corncob")) method_controls[["corncob_lrt"]] else NULL,
         alpha = alpha
       ),
@@ -436,73 +433,6 @@ Go_DA_aldex2 <- function(feature_table, metadata, group_var, group_1, group_2,
     failure_fun = function(note) {
       message("[ConDA] WARNING: ALDEx2 failed and was skipped. Reason: ", note)
       Go_CreateSkippedAdapterResult(rownames(feature_table), "aldex2", paste0("Failed and skipped: ", note))
-    }
-  )
-}
-
-#' Maaslin2 adapter
-Go_DA_maaslin <- function(feature_table, metadata, group_var, group_1, group_2,
-                          random_effects = NULL,
-                          covariates = NULL, control = NULL, alpha = 0.05) {
-  control <- Go_GetDAMethodControls("maaslin2", control)
-  native_check <- Go_ShouldUseNativeAdapter("maaslin2", feature_table, metadata, group_var, group_1, group_2)
-  if (!isTRUE(native_check$ok)) {
-    message("[ConDA] WARNING: MaAsLin2 could not run and was skipped. Reason: ", native_check$note)
-    return(Go_CreateSkippedAdapterResult(rownames(feature_table), "maaslin2", paste0("Skipped: ", native_check$note)))
-  }
-  Go_RunNativeAdapter(
-    method_name = "Maaslin2",
-    package_names = "Maaslin2",
-    native_fun = function() {
-      prepared <- Go_PrepareDAInputs(
-        feature_table, metadata, group_var, group_1, group_2,
-        covariates = covariates, random_effects = random_effects
-      )
-      method_input <- Go_PrepareMethodInput(prepared, "maaslin2", control)
-      output_dir <- file.path(
-        tempdir(),
-        paste0("condadist_maaslin_", as.integer(stats::runif(1, 1, 1e9)))
-      )
-      dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-      fit <- Maaslin2::Maaslin2(
-        input_data = method_input$sample_feature_data,
-        input_metadata = method_input$metadata,
-        output = output_dir,
-        min_abundance = control$min_abundance,
-        min_prevalence = control$min_prevalence,
-        normalization = control$normalization,
-        transform = control$transform,
-        analysis_method = control$analysis_method,
-        max_significance = control$max_significance,
-        fixed_effects = method_input$fixed_effects,
-        random_effects = random_effects,
-        standardize = control$standardize,
-        plot_heatmap = FALSE,
-        plot_scatter = FALSE,
-        save_scatter = FALSE,
-        reference = paste0(prepared$temp_group_var, ",ref")
-      )
-      res <- fit$results
-      res <- res[res$metadata == prepared$temp_group_var & res$value == "cmp", , drop = FALSE]
-
-      out <- Go_CreateBaseDAResult(
-        prepared, "maaslin2", "coef",
-        Go_CombineNotes("Native Maaslin2 adapter", Go_ControlNote(control))
-      )
-      out <- Go_FillDAResult(
-        base_result = out,
-        feature_ids = res$feature,
-        coef = res$coef,
-        effect_size = res$coef,  # coefficient for cmp (group_2) vs ref: positive = up in group_2
-        p_value = res$pval,
-        q_value = res$qval
-      )
-      out$is_significant <- out$q_value < alpha
-      out
-    },
-    failure_fun = function(note) {
-      message("[ConDA] WARNING: MaAsLin2 failed and was skipped. Reason: ", note)
-      Go_CreateSkippedAdapterResult(rownames(feature_table), "maaslin2", paste0("Failed and skipped: ", note))
     }
   )
 }

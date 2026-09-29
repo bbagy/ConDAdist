@@ -120,21 +120,16 @@ test_that("Go_MethodSignature single method returns full name", {
   expect_equal(Go_MethodSignature("deseq2"),   "deseq2")
   expect_equal(Go_MethodSignature("aldex2"),   "aldex2")
   expect_equal(Go_MethodSignature("ancombc2"), "ancombc2")
-  expect_equal(Go_MethodSignature("maaslin2"), "maaslin2")
   # The corncob alias resolves to corncob_lrt.
   expect_equal(Go_MethodSignature("corncob"),  "corncob_lrt")
 })
 
-test_that("Go_MethodSignature multi-method uses fixed-order initials DANML", {
+test_that("Go_MethodSignature multi-method uses fixed-order initials DANWL", {
   # The corncob alias contributes the L in the signature.
-  expect_equal(Go_MethodSignature(c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob")), "DANML")
+  expect_equal(Go_MethodSignature(c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob")), "DANWL")
   expect_equal(Go_MethodSignature(c("deseq2", "corncob")), "DL")
   expect_equal(Go_MethodSignature(c("aldex2", "ancombc2")), "AN")
   expect_equal(Go_MethodSignature(c("corncob", "deseq2")), "DL")
-})
-
-test_that("Go_MethodSignature normalises maaslin alias", {
-  expect_equal(Go_MethodSignature(c("deseq2", "maaslin")), "DM")
 })
 
 # ---- Go_ResolveMethods / Go_ResolveDistances --------------------------------
@@ -145,8 +140,9 @@ test_that("Go_ResolveMethods deduplicates and lowercases", {
   expect_equal(Go_ResolveMethods(c("ALDEX2", "corncob")), c("aldex2", "corncob_lrt"))
 })
 
-test_that("Go_ResolveMethods normalises maaslin alias", {
-  expect_equal(Go_ResolveMethods("maaslin"), "maaslin2")
+test_that("Go_ResolveMethods rejects the removed MaAsLin2 adapter", {
+  expect_error(Go_ResolveMethods("maaslin2"), "no longer supported")
+  expect_error(Go_ResolveMethods(c("deseq2", "maaslin")), "no longer supported")
 })
 
 test_that("Solution1 is the multi-method default and single-method behavior is preserved", {

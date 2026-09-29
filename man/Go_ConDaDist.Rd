@@ -61,7 +61,7 @@ permutations; it is not a fixed-effect adjustment.}
 \item{name}{Optional label appended to output file names.}
 
 \item{random_effects}{Optional random-effect metadata variables used for
-native \code{MaAsLin2} single-mode runs and \code{ANCOMBC2} mixed-effects models.}
+\code{ANCOMBC2} mixed-effects models.}
 
 \item{methods}{Differential abundance methods to run. Defaults to all
 supported methods. Available options:
@@ -178,18 +178,6 @@ res_dir <- Go_ConDaDist(
   project = "DemoProj",
   methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
   distances = c("bray", "jaccard", "jsd")
-)
-
-# native MaAsLin2 single-mode run
-res_dir <- Go_ConDaDist(
-  psIN = ps,
-  group_var = "TreatmentGroup",
-  group_1 = "Control",
-  group_2 = c("GLP-2", "D7", "D14"),
-  project = "DemoProj",
-  methods = "maaslin2",
-  distances = NULL,
-  random_effects = c("SubjectID")
 )
 }
 }

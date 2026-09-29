@@ -35,7 +35,7 @@
 #'   permutations; it is not a fixed-effect adjustment.
 #' @param name Optional label appended to output file names.
 #' @param random_effects Optional random-effect metadata variables used for
-#'   native `MaAsLin2` single-mode runs and `ANCOMBC2` mixed-effects models.
+#'   `ANCOMBC2` mixed-effects models.
 #' @param methods Differential abundance methods to run. Defaults to all
 #'   supported methods. Available options:
 #'   \itemize{
@@ -116,18 +116,6 @@
 #'   project = "DemoProj",
 #'   methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
 #'   distances = c("bray", "jaccard", "jsd")
-#' )
-#'
-#' # native MaAsLin2 single-mode run
-#' res_dir <- Go_ConDaDist(
-#'   psIN = ps,
-#'   group_var = "TreatmentGroup",
-#'   group_1 = "Control",
-#'   group_2 = c("GLP-2", "D7", "D14"),
-#'   project = "DemoProj",
-#'   methods = "maaslin2",
-#'   distances = NULL,
-#'   random_effects = c("SubjectID")
 #' )
 #' }
 Go_ConDaDist <- function(
@@ -244,31 +232,6 @@ Go_RunConDaDistMain <- function(
     metadata = metadata
   )
   distances <- Go_ResolveDistances(distances, phy_tree = normalized_bundle$phy_tree)
-
-  if (Go_IsNativeMaaslinSingleMode(methods, distances)) {
-    message("[ConDA] Single MaAsLin2 mode: using native Go_Maaslin2 workflow with combined levels.")
-    native_dir <- Go_RunNativeMaaslinSingle(
-      psIN = feature_table,
-      project = project,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      covariates = covariates,
-      random_effects = random_effects,
-      name = name
-    )
-    output_layout <- Go_path(project = project, pdf = "no", table = "yes")
-    bridge_out <- Go_ExportNativeMaaslin2VolcanoBridge(
-      native_dir = native_dir,
-      bridge_dir = output_layout$conda_dist_single_volcano,
-      psIN = feature_table,
-      group_var = group_var,
-      group_1 = group_1,
-      group_2 = group_2,
-      name = name
-    )
-    return(invisible(normalizePath(output_layout$conda_dist_single_volcano, winslash = "/", mustWork = FALSE)))
-  }
 
   output_layout <- Go_path(project = project, pdf = "no", table = "yes")
   root_output_dir <- output_layout$main

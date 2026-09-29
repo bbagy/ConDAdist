@@ -121,12 +121,6 @@ Go_ExportVolcanoBridge <- function(output_dir, da_table, final_scores,
           aldex2.P   = ifelse(p_value < 0.05, ifelse(effect_size >= 0, "up", "down"), "NS"),
           aldex2.FDR = ifelse(q_bridge < 0.05, ifelse(effect_size >= 0, "up", "down"), "NS"))
       },
-      maaslin2 = {
-        q_bridge <- .fill_q(x$p_value, x$q_value)
-        transform(x, maaslin2_coef = coef, maaslin2_pvalue = p_value, maaslin2_qvalue = q_bridge,
-          maaslin2.P   = ifelse(p_value < 0.05, ifelse(coef >= 0, "up", "down"), "NS"),
-          maaslin2.FDR = ifelse(q_bridge < 0.05, ifelse(coef >= 0, "up", "down"), "NS"))
-      },
       ancombc2 = {
         q_bridge <- .fill_q(x$p_value, x$q_value)
         transform(x, lfc_ancombc = coef, pvalue_ancombc = p_value, qvalue_ancombc = q_bridge,

@@ -1,4 +1,4 @@
-## Regression test (2026-09-28): corncob and MaAsLin2 adapters negated their
+## Regression test (2026-09-28): corncob adapters negated their
 ## coefficients, reporting taxa increased in group_2 as up_in_group1.
 test_that("adapters report a taxon increased in group_2 as up_in_group2", {
   set.seed(1)
@@ -16,5 +16,4 @@ test_that("adapters report a taxon increased in group_2 as up_in_group2", {
   check(Go_DA_deseq2, "DESeq2")
   check(Go_DA_corncob_wald, "corncob")
   check(Go_DA_corncob_lrt, "corncob")
-  check(Go_DA_maaslin, "Maaslin2")
 })
