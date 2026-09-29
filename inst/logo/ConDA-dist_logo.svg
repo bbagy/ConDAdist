@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="462" height="96" viewBox="0 0 462 96" role="img" aria-label="ConDA-dist logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0F9D8A"/>
+      <stop offset="100%" stop-color="#2D6CDF"/>
+    </linearGradient>
+    <style>.word{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Segoe UI",Inter,Arial,sans-serif;}</style>
+  </defs>
+  <!-- icon: four test families converge on one consensus call; rings = community-structure (distance) prioritization -->
+  <g transform="translate(4,6)">
+    <circle cx="58" cy="42" r="26" fill="none" stroke="url(#g)" stroke-width="2" opacity="0.35"/>
+    <circle cx="58" cy="42" r="16" fill="none" stroke="url(#g)" stroke-width="2.5" opacity="0.7"/>
+    <path d="M4 8 C 30 8, 40 42, 58 42"  fill="none" stroke="#E69F00" stroke-width="5" stroke-linecap="round"/>
+    <path d="M4 30 C 30 30, 40 42, 58 42" fill="none" stroke="#56B4E9" stroke-width="5" stroke-linecap="round"/>
+    <path d="M4 54 C 30 54, 40 42, 58 42" fill="none" stroke="#009E73" stroke-width="5" stroke-linecap="round"/>
+    <path d="M4 76 C 30 76, 40 42, 58 42" fill="none" stroke="#CC79A7" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="58" cy="42" r="7" fill="#111827"/>
+  </g>
+  <text x="100" y="60" class="word" font-size="60" font-weight="800" fill="#111827">ConDA<tspan fill="url(#g)" font-weight="900">-dist</tspan></text>
+  <text x="102" y="84" class="word" font-size="16" fill="#374151">Consensus DA with distance-guided prioritization</text>
+</svg>
