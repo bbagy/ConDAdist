@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="inst/logo/ConDA-dist_logo.png" alt="ConDA-dist logo" width="460">
-</p>
-
-# ConDA-dist
+<img src="inst/logo/ConDA-dist_logo.png" alt="ConDA-dist" width="460">
 
 `ConDA-dist` is a microbiome differential abundance framework for single-method
 analysis and multi-method consensus scoring, with optional distance-guided
