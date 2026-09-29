@@ -1,11 +1,14 @@
 <img src="inst/logo/ConDA-dist_logo.png" alt="ConDA-dist" width="460">
 
 `ConDA-dist` is a microbiome differential abundance framework for single-method
-analysis and multi-method consensus scoring, with optional distance-guided
-evidence integration.
+analysis and multi-method consensus calling, with optional distance-guided
+prioritization.
 
 - single-method DA runs with standardized outputs
-- multi-method consensus scoring with beta-diversity-guided evidence integration
+- multi-method consensus: significance from a family-aware partial conjunction
+  of five DA tests
+- optional community-structure (distance) evidence that re-ranks DA-supported
+  features; it never changes which features are significant
 
 The main entrypoint is `Go_ConDaDist()`.
 
@@ -14,10 +17,33 @@ The main entrypoint is `Go_ConDaDist()`.
 The package remains `ConDAdist`; the current internal consensus engine is V5.
 The public API exposes one frozen preset and one user-defined mode:
 
-- `preset = "broad_panel"` (default): five DA tests grouped into four method
-  families, no distance contribution, and all-but-one family partial conjunction.
+- `preset = "full_cdd"` (default): five DA tests grouped into four method
+  families, all-but-one family partial conjunction, no distance layer.
+  `preset = "broad_panel"` is an exact alias kept for backward compatibility.
 - `preset = "custom"`: user-selected methods, distances, weights, or combiner;
   custom combinations are not claimed to be independently calibrated.
+
+To add distance-guided prioritization to the default panel, keep the same five
+tests and add a distance. This is the configuration benchmarked as
+"Full CDD + Bray"; significance calls are identical to `full_cdd` because the
+distance layer only changes the priority ranking.
+
+```r
+res_dir <- Go_ConDaDist(
+  psIN = ps,
+  group_var = "TreatmentGroup",
+  group_1 = "Control",
+  group_2 = "Case",
+  project = "DemoProj",
+  preset = "custom",
+  methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+  distances = "bray"
+)
+```
+
+Priority-score weights default to DA evidence 0.50, distance contribution 0.10,
+direction agreement 0.40 and effect agreement 0.00. Without a distance, the
+distance weight is removed and the remaining weights are renormalized.
 
 The Stage-X exhaustive-search candidate is retained only as a reported negative
 benchmark result and is not exposed as a named preset. Explicitly supplying
@@ -38,22 +64,23 @@ Supported DA methods:
 - `deseq2`
 - `aldex2`
 - `ancombc2`
-- `maaslin2`
 - `corncob_wald`
-- `corncob_lrt`
+- `corncob_lrt` (`"corncob"` is accepted as an alias)
 
 Supported distance metrics:
 
 - `bray`
 - `jaccard`
-- `aitchison`
+- `jsd`
+- `unifrac`, `weighted_unifrac` (require a phylogenetic tree in `psIN`)
 
 Why distances matter:
 
 - DA methods detect feature-level abundance shifts
 - distance-based beta evidence asks whether a feature also contributes to
   between-group community separation
-- this gives `ConDA-dist` a second axis of evidence beyond DA p-values alone
+- distance evidence does not add significance; among features with DA support,
+  it raises the priority of those that drive the community-level difference
 
 `distances = NULL` turns off beta-diversity and runs DA-only mode.
 
@@ -162,9 +189,9 @@ condadist_dependency()
 ```
 
 This installs all required Bioconductor and CRAN packages automatically,
-including ANCOMBC, DESeq2, ALDEx2, Maaslin2, corncob, phyloseq, and vegan.
+including ANCOMBC, DESeq2, ALDEx2, corncob, phyloseq, and vegan.
 
-### 3. Load ConDA-dist
+### 4. Load ConDA-dist
 
 ```r
 devtools::load_all("/path/to/ConDA-dist")
@@ -227,7 +254,7 @@ Key arguments:
 
 ### Consensus inference default (V5)
 
-The conservative `broad_panel` default uses five tests grouped into four
+The conservative `full_cdd` default uses five tests grouped into four
 method families:
 
 ```r
@@ -345,29 +372,12 @@ res_dir <- Go_ConDaDist(
 )
 ```
 
-Example: native `MaAsLin2`
-
-```r
-res_dir <- Go_ConDaDist(
-  psIN = ps,
-  group_var = "TreatmentGroup",
-  group_1 = "Control",
-  group_2 = c("GLP-2", "D7", "D14"),
-  project = "DemoProj",
-  methods = "maaslin2",
-  distances = NULL,
-  covariates = c("Age", "Sex"),
-  random_effects = c("SubjectID")
-)
-```
-
 Notes:
 
-- `maaslin2` single mode uses the native `MaAsLin2` workflow
 - `ancombc2` supports mixed-effects through `random_effects`
-- `maaslin2` and `ancombc2` are the only adapters that accept
-  `random_effects`; other requested methods are explicitly skipped rather than
-  silently treating a random effect as a fixed covariate
+- `ancombc2` is the only adapter that accepts `random_effects`; other
+  requested methods are explicitly skipped rather than silently treating a
+  random effect as a fixed covariate
 - requested covariate, random-effect, and strata columns must exist in the
   metadata; unknown names stop the analysis
 - complete-case samples are fixed before prevalence/abundance filtering so
@@ -392,8 +402,9 @@ res_dir <- Go_ConDaDist(
   group_1 = "Control",
   group_2 = "GLP-2",
   project = "DemoProj",
-  methods = c("deseq2", "aldex2", "ancombc2", "maaslin2", "corncob"),
-  distances = c("bray", "jaccard", "aitchison"),
+  preset = "custom",
+  methods = c("deseq2", "aldex2", "ancombc2", "corncob_wald", "corncob_lrt"),
+  distances = "bray",
   filter_scope = "pairwise"
 )
 ```
@@ -401,9 +412,10 @@ res_dir <- Go_ConDaDist(
 Consensus combines:
 
 - standardized DA outputs from all requested methods
-- Fisher-style combined evidence
-- direction and effect consistency
-- beta-diversity contribution evidence when distances are enabled
+- significance: family-aware partial conjunction of the method p-values,
+  followed by BH across features
+- priority score: combined DA evidence, direction and effect agreement across
+  methods, and distance contribution when distances are enabled
 
 ## Method Signature Rules
 
@@ -412,15 +424,16 @@ Output directories use a method signature.
 - Single method:
   full method name
 - Multi-method:
-  fixed-order initials in `D A N M C`
+  fixed-order initials in `D A N W L`
+  (`W` = `corncob_wald`, `L` = `corncob_lrt`)
 
 Examples:
 
 - `deseq2`
 - `aldex2`
-- `DMC`
-- `AC`
-- `DANMC`
+- `DNW`
+- `AL`
+- `DANWL`
 
 This avoids overwriting outputs from different method combinations.
 
@@ -453,7 +466,7 @@ For a typical consensus comparison:
 DemoProj_260319/
 ├── table/
 │   ├── ConDaDist/
-│   │   └── DANMC/
+│   │   └── DANWL/
 │   │       └── Control.vs.GLP-2/
 │   │           ├── DemoProj.filtered_feature_table.csv
 │   │           ├── DemoProj.all_methods_standardized.csv
@@ -462,7 +475,7 @@ DemoProj_260319/
 │   │           ├── DemoProj.beta_feature_contribution.csv
 │   │           └── DemoProj.final_consensus_scores.csv
 │   └── ConDaDist_plot_Tab/
-│       ├── condadist.DANMC.(Control.vs.GLP-2.DemoProj).volcano_bridge.csv
+│       ├── condadist.DANWL.(Control.vs.GLP-2.DemoProj).volcano_bridge.csv
 │       └── deseq2.(Control.vs.GLP-2.DemoProj).volcano_bridge.csv
 └── pdf/
     ├── DA_plot/
@@ -490,7 +503,7 @@ res_dir <- Go_ConDaDist(
   group_2 = "GLP-2",
   project = "DemoProj",
   methods = c("deseq2", "aldex2", "ancombc2"),
-  distances = c("bray", "jaccard", "aitchison")
+  distances = "bray"
 )
 
 # 2. Inspect project outputs
@@ -560,12 +573,13 @@ abundance, but also contribution to overall community structure differences.
 
 At most 3 distances are allowed per run.
 
-Recommended combinations:
+Recommended:
 
-- tree-free data:
-  `c("bray", "jaccard", "aitchison")`
+- `"bray"`: the benchmarked default for distance-guided prioritization
+- tree-free alternatives: `"jaccard"`, `"jsd"`, or up to three of
+  `c("bray", "jaccard", "jsd")`
 - when phylogenetic distances are needed:
-  choose a smaller representative set per run
+  choose a smaller representative set per run, e.g. `c("bray", "jsd", "unifrac")`
 
 Why the limit exists:
 
@@ -597,7 +611,6 @@ and the reason is reported (see Failure Behavior below).
 | `deseq2`  | 3                     | 5            |
 | `corncob` | 3                     | 10           |
 | `aldex2`  | 2                     | 2            |
-| `maaslin2`| 2                     | 2            |
 
 Note: group size is counted from the actual pairwise metadata after sample
 alignment. If `group_var` is stored as a factor with additional levels not
@@ -652,29 +665,6 @@ Interpretation:
 - When covariates are present, the adapter automatically switches to the
   ALDEx2 GLM path.
 - Seed is fixed at `1` by default for reproducibility of the Monte Carlo draws.
-
-### `maaslin2`
-
-Default controls:
-
-- `min_abundance = 0`
-- `min_prevalence = 0`
-- `normalization = "TSS"`
-- `transform = "LOG"`
-- `analysis_method = "LM"`
-- `max_significance = 1`
-- `standardize = FALSE`
-
-Interpretation:
-
-- Linear mixed model DA with TSS+LOG normalization.
-- Filtering (`min_abundance = 0`, `min_prevalence = 0`) is intentionally
-  set to zero so that feature selection is controlled by the upstream
-  `Go_FilterFeatures` step, not repeated inside the adapter.
-- Supports covariates as fixed effects and `random_effects` for repeated
-  measures or nested designs.
-- Single-mode MaAsLin2 (`methods = "maaslin2"`, `distances = NULL`) uses a
-  special native workflow that supports multi-level `group_2` comparisons.
 
 ### `corncob`
 
@@ -796,16 +786,15 @@ Single-mode runs have been exercised for:
 - `deseq2`
 - `aldex2`
 - `ancombc2`
-- `maaslin2`
-- `corncob`
+- `corncob_wald`, `corncob_lrt`
 
 Consensus smoke tests have been exercised across all non-single combinations of:
 
 - `D`
 - `A`
 - `N`
-- `M`
-- `C`
+- `W`
+- `L`
 
 ## Recommended Workflow
 
